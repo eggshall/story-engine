@@ -1,0 +1,63 @@
+/* 全局样式 — 故事引擎前端 */
+
+:root {
+  --el-color-primary: #409eff;
+  --sidebar-width: 220px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  height: 100%;
+  width: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  background-color: var(--el-bg-color-page);
+  color: var(--el-text-color-primary);
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #909399;
+}
+
+/* 编辑器区域 */
+.editor-content {
+  line-height: 1.8;
+  font-size: 15px;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'STSong', 'SimSun', serif;
+}
+
+.editor-content h1, .editor-content h2, .editor-content h3 {
+  margin: 1em 0 0.5em;
+  font-weight: 600;
+}
+
+.editor-content p {
+  margin: 0.5em 0;
+  text-indent: 2em;
+}
+
+.editor-content blockquote {
+  border-left: 3px solid var(--el-color-primary-light-5);
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-lighter);
+  border-radius: 0 4px 4px 0;
+}
