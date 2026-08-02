@@ -38,7 +38,7 @@ def _detect_and_decode(data: bytes) -> str:
 
 
 def _extract_epub_text(path: Path) -> str:
-    """从 epub 提取正文纯文本。"""
+    """从 epub 提取正文纯文本（整本合并）。"""
     parts: List[str] = []
     with zipfile.ZipFile(path) as zf:
         html_files = sorted(
@@ -47,14 +47,62 @@ def _extract_epub_text(path: Path) -> str:
             and not n.lower().startswith(("mimetype", "meta-inf"))
         )
         for name in html_files:
-            text = _detect_and_decode(zf.read(name))
-            text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", text, flags=re.S | re.I)
-            text = re.sub(r"<[^>]+>", "\n", text)
-            text = text.replace("&nbsp;", " ").replace("&amp;", "&")
-            text = text.replace("&lt;", "<").replace("&gt;", ">")
-            text = re.sub(r"\n{2,}", "\n\n", text)
-            parts.append(text.strip())
+            parts.append(_html_to_text(_detect_and_decode(zf.read(name))))
     return "\n\n".join(parts)
+
+
+def _html_to_text(text: str) -> str:
+    """HTML → 纯文本。"""
+    text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", text, flags=re.S | re.I)
+    text = re.sub(r"<[^>]+>", "\n", text)
+    text = text.replace("&nbsp;", " ").replace("&amp;", "&")
+    text = text.replace("&lt;", "<").replace("&gt;", ">")
+    text = re.sub(r"\n{2,}", "\n\n", text)
+    return text.strip()
+
+
+def _parse_ncx_top_level(zf) -> List[Dict[str, str]]:
+    """解析 toc.ncx 顶级 navPoint: [{label, src}]。"""
+    import xml.etree.ElementTree as ET
+
+    ncx = zf.read("toc.ncx").decode("utf-8", errors="replace")
+    root = ET.fromstring(ncx)
+    ns = {"ncx": "http://www.daisy.org/z3986/2005/ncx/"}
+    books = []
+    for np in root.findall("./ncx:navMap/ncx:navPoint", ns):
+        label = np.find("ncx:navLabel/ncx:text", ns)
+        content = np.find("ncx:content", ns)
+        if label is not None and content is not None:
+            books.append({
+                "label": (label.text or "").strip(),
+                "src": content.get("src", ""),
+            })
+    return books
+
+
+def extract_epub_books(path: Path) -> List[Dict[str, Any]]:
+    """拆分合集 epub → [{title, text}]。非合集(无 ncx 或单书)返回整本。"""
+    with zipfile.ZipFile(path) as zf:
+        try:
+            navpoints = _parse_ncx_top_level(zf)
+        except Exception:  # noqa: BLE001 - ncx 解析失败按整本处理
+            navpoints = []
+
+        part_files = sorted(
+            n for n in zf.namelist() if re.match(r"text/part\d+", n)
+        )
+        if len(navpoints) < 2 or not part_files:
+            # 非合集: 整本导入
+            return [{"title": _clean_title(path.stem), "text": _extract_epub_text(path)}]
+
+        books = []
+        for i, book in enumerate(navpoints):
+            start = book["src"]
+            end = navpoints[i + 1]["src"] if i + 1 < len(navpoints) else None
+            files = [f for f in part_files if f >= start and (end is None or f < end)]
+            text = "\n\n".join(_html_to_text(_detect_and_decode(zf.read(f))) for f in files)
+            books.append({"title": _clean_title(book["label"]), "text": text})
+        return books
 
 
 def _read_file_text(path: Path) -> str:
@@ -91,16 +139,30 @@ def _save_corpus(title: str, raw_texts: List[str], genre: str, author: str) -> D
     return record
 
 
-def import_dir(dir_path: Path, genre: str = "other", author: str = "") -> Optional[Dict[str, Any]]:
-    """目录=一本书, 合并所有分卷导入。"""
+def import_dir(dir_path: Path, genre: str = "other", author: str = "") -> List[Dict[str, Any]]:
+    """目录=一本书/一个合集: epub 合集拆分多本, 多 txt 分卷合并一本。"""
     files = sorted(f for f in dir_path.iterdir() if f.suffix.lower() in _SUFFIXES)
     if not files:
-        return None
-    title = _clean_title(dir_path.name)
-    raw_texts = [_read_file_text(f) for f in files]
-    rec = _save_corpus(title, raw_texts, genre, author)
+        return []
+
+    recs: List[Dict[str, Any]] = []
+    epubs = [f for f in files if f.suffix.lower() == ".epub"]
+    if epubs:
+        for ep in epubs:
+            for book in extract_epub_books(ep):
+                if not book["text"].strip():
+                    continue
+                try:
+                    recs.append(_save_corpus(book["title"], [book["text"]], genre, author))
+                except ValueError as exc:
+                    print(f"    跳过空书 {book['title']}: {exc}")
+    else:
+        title = _clean_title(dir_path.name)
+        raw_texts = [_read_file_text(f) for f in files]
+        recs.append(_save_corpus(title, raw_texts, genre, author))
+
     _archive(dir_path)
-    return rec
+    return recs
 
 
 def import_file(path: Path, genre: str = "other", author: str = "") -> Optional[Dict[str, Any]]:
@@ -130,14 +192,15 @@ def scan_imports(genre: str = "other", author: str = "") -> List[Dict[str, Any]]
             continue
         try:
             if item.is_dir():
-                rec = import_dir(item, genre=genre, author=author)
+                recs = import_dir(item, genre=genre, author=author)
             elif item.suffix.lower() in _SUFFIXES:
-                rec = import_file(item, genre=genre, author=author)
+                recs = [import_file(item, genre=genre, author=author)]
             else:
-                rec = None
-            if rec:
-                imported.append(rec)
-                print(f"  ✅ 导入: {rec['title']} ({rec['chars']}字)")
+                recs = []
+            for rec in recs:
+                if rec:
+                    imported.append(rec)
+                    print(f"  ✅ 导入: {rec['title']} ({rec['chars']}字)")
         except Exception as exc:  # noqa: BLE001
             print(f"  ❌ 导入失败 {item.name}: {exc.__class__.__name__}: {exc}")
     return imported
