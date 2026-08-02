@@ -1,3 +1,21 @@
+## [0.7.0] — 2026-08-02
+
+### 新增
+- 📚 **P6 数据采集管线完成** — 公版中文小说采集与清洗 Pipeline
+  - 数据源: Gutenberg 中文公版库 (444 本) 国内直连采集
+  - 存储: D:/文章数据 (raw/原始, corpus/语料, imports/导入区, meta/索引)
+  - 首批 35 本入库 (1313 万字)，覆盖四大题材: 严肃文学 7 / 幽默讽刺 9 / 悲伤文学 7 / 流行文学 12
+  - 清洗管线: Gutenberg 样板剥离(新版/老式) → 中文起点校验 → 空白规范化 → 繁转简 (OpenCC t2s)
+  - 本地导入通道: imports/ 丢入 txt/epub 自动识别编码并清洗入库
+  - 新模块: `src/story_engine/data_pipeline/` (catalog/fetcher/cleaner/importer/index/pipeline)
+  - CLI: `python -m story_engine.data_pipeline.pipeline --collect/--imports/--stats`
+
+### 测试统计
+```text
+后端: 232 passed (新增 10 个数据管线测试)
+构建: ✅ 通过
+```
+
 ## [0.6.1] — 2026-08-01
 
 ### 新增

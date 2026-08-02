@@ -16,6 +16,7 @@ dependencies = [
     "fastapi>=0.109",
     "uvicorn>=0.27",
     "sse-starlette>=1.8",
+    "opencc-python-reimplemented>=0.1.7",
 ]
 
 [project.optional-dependencies]
