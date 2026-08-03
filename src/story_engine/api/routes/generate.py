@@ -177,9 +177,22 @@ async def chat_completion(req: ChatRequest):
     # 1. 确定系统提示词
     system_prompt = get_system_prompt(req.mode, req.system_prompt)
 
-    # 1.5 文风注入（P5）：写作模式下携带文风画像时注入 system prompt
-    if req.style_prompt:
-        system_prompt = f"{system_prompt}\n\n请严格遵循以下文风风格进行创作，保持文风一致：\n{req.style_prompt}"
+    # 1.5 文风注入（P5+）：写作模式下携带文风画像时注入 system prompt
+    #     profile_id 优先 → 完整注入（量化特征 + 原文示例）；否则用 style_prompt 一句话
+    if req.profile_id or req.style_prompt:
+        style_block = ""
+        if req.profile_id:
+            from story_engine.style.analyzer import StyleAnalyzer
+            from story_engine.style.db import StyleDb
+            profile = StyleDb().get_profile(req.profile_id)
+            if profile:
+                style_block = StyleAnalyzer.render_style_block(profile)
+            else:
+                logger.warning("文风画像不存在: %s", req.profile_id)
+        if not style_block and req.style_prompt:
+            style_block = req.style_prompt
+        if style_block:
+            system_prompt = f"{system_prompt}\n\n请严格遵循以下文风风格进行创作，保持文风一致：\n{style_block}"
 
     # 2. 联网搜索（如果需要）
     search_context = ""

@@ -11,6 +11,16 @@
 
 ### 修复
 - 🔧 批量脚本 JSON 解析: 清理全部 `\x00-\x1f` 未转义控制字符 (JSON 字符串内字面换行/制表符非法导致模型偶发输出解析失败)
+- 🐛 **P5+ 文风注入链路打通**: 发现并修复 camelCase 字段丢失 bug
+  - 前端传 `stylePrompt`/`profileId` (camelCase)，后端 Pydantic 字段为 snake_case，默认不转换 → **文风注入从未生效**（选中文风生成时后端收到空字符串）
+  - 修复: `schemas.py` 新增 `APIModel` 基类 (`alias_generator=to_camel` + `populate_by_name`)，同时兼容两种命名
+  - 升级: `/generate/chat` 与 `/api/style/generate` 支持 `profile_id` 完整注入
+
+### 新增
+- 🎯 **文风完整注入 (P5+)**: 生成时不再只用一句话风格总结，而是三段式完整画像
+  - `StyleAnalyzer.render_style_block(profile)`: 【风格总结】+【量化特征】(14维带评分)+【原文示例】(800字 few-shot 锚点)
+  - 前端写作模式自动携带 `profileId`（优先）与 `stylePrompt`（兜底）
+  - 实测: 红楼梦块 1054 字 vs 全民魔女1994 块 1053 字，风格特征对比鲜明
 
 ### 脚本
 - `scripts/p6_style_batch.py` — 批量文风分析 (支持 limit/offset/idx: 指定书目)

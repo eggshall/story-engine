@@ -197,16 +197,20 @@ async def generate_with_style(req: StyleGenerateRequest):
 
     # 加载文风画像
     db = _get_db()
-    style_prompt = req.style_prompt
+    style_block = ""
     if req.profile_id:
         profile = db.get_profile(req.profile_id)
         if profile:
-            style_prompt = profile.style_prompt or style_prompt
+            style_block = StyleAnalyzer.render_style_block(profile)
+        else:
+            raise HTTPException(status_code=404, detail="文风画像不存在")
+    elif req.style_prompt:
+        style_block = req.style_prompt
 
     # 构建带文风的 system prompt
     extra_style = ""
-    if style_prompt:
-        extra_style = f"\n\n请严格遵循以下文风风格进行创作：\n{style_prompt}"
+    if style_block:
+        extra_style = f"\n\n请严格遵循以下文风风格进行创作：\n{style_block}"
 
     # 加载小说信息
     outline_hint = ""

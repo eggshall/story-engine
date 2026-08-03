@@ -195,15 +195,18 @@ async function sendMessage() {
 
   try {
     const msgs = chat.messages.map((m) => ({ role: m.role, content: m.content }))
-    // P5: 写作模式下携带已选文风（stylePrompt）注入生成
+    // P5+: 写作模式下携带已选文风 — profileId 完整注入(特征+样本)，兜底 stylePrompt
+    const profile = styleStore.selectedProfile
     const stylePrompt =
-      mode.value === 'write' ? (styleStore.selectedProfile?.style_prompt || '') : ''
+      mode.value === 'write' ? (profile?.style_prompt || '') : ''
+    const profileId = mode.value === 'write' ? (profile?.id || '') : ''
     for await (const token of chatStream({
       messages: msgs,
       model: selectedModel.value,
       mode: mode.value,
       search: searchEnabled.value,
       stylePrompt,
+      profileId,
     })) {
       chat.appendStream(token)
       await nextTick()

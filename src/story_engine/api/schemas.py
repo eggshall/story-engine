@@ -4,12 +4,19 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
+
+
+class APIModel(BaseModel):
+    """API 基类：接受 camelCase 别名（前端 JS 约定），同时兼容 snake_case"""
+
+    model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel)
 
 
 # ── 请求 ──────────────────────────────────────────────
 
-class ChatRequest(BaseModel):
+class ChatRequest(APIModel):
     """AI 对话请求"""
     messages: List[Dict[str, str]] = Field(description="消息列表 [role, content]")
     system_prompt: str = ""
@@ -20,6 +27,7 @@ class ChatRequest(BaseModel):
     mode: str = Field(default="chat", description="模式: chat=普通闲聊 / write=专业写作")
     search: bool = Field(default=False, description="是否启用联网搜索")
     style_prompt: str = Field(default="", description="文风描述，非空时注入 system prompt")
+    profile_id: str = Field(default="", description="文风画像 ID，优先于 style_prompt（完整注入特征+样本）")
 
 
 class GenerateOutlineRequest(BaseModel):

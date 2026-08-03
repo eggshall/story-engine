@@ -209,6 +209,46 @@ class StyleAnalyzer:
         return "；".join(parts) if parts else ""
 
     @staticmethod
+    def render_style_block(profile: "StyleProfile",
+                           sample_len: int = 800) -> str:
+        """将文风画像渲染为完整风格指令块（生成注入用）。
+
+        三段式：
+          1. 风格总结 — 一句话概括
+          2. 量化特征 — 14 维可执行约束（词汇/句长/视角/对话比例…）
+          3. 原文示例 — few-shot 锚点（样本段落前 sample_len 字）
+        """
+        lines = []
+        # 1. 风格总结
+        sp = profile.style_prompt or ""
+        if sp:
+            lines.append(f"【风格总结】{sp}")
+
+        # 2. 量化特征（带 score 的优先展示）
+        feats = profile.features or {}
+        feat_parts = []
+        for key, val in feats.items():
+            if key == "整体风格总结":
+                continue
+            if isinstance(val, dict):
+                v = val.get("value", "")
+                score = val.get("score")
+                if v:
+                    s = f"{v} ({score}分)" if score else v
+                    feat_parts.append(f"{key}: {s}")
+            elif isinstance(val, str) and val:
+                feat_parts.append(f"{key}: {val}")
+        if feat_parts:
+            lines.append("【量化特征】" + "；".join(feat_parts))
+
+        # 3. 原文示例（few-shot 锚点）
+        sample = (profile.sample_text or "").strip()
+        if sample:
+            lines.append(f"【原文示例】以下是目标文风的原文片段，请模仿其语气、节奏与用词：\n{sample[:sample_len]}")
+
+        return "\n".join(lines)
+
+    @staticmethod
     def _extract_json(raw: str) -> Optional[Dict]:
         """从模型输出中提取 JSON"""
         # 尝试直接解析

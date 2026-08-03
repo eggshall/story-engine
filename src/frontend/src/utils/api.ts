@@ -183,6 +183,7 @@ export async function* chatStream(params: {
   mode?: string
   search?: boolean
   stylePrompt?: string
+  profileId?: string
 }): AsyncGenerator<string> {
   const res = await fetch('/api/generate/chat', {
     method: 'POST',
