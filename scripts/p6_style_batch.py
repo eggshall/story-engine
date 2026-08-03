@@ -68,8 +68,8 @@ def call_model(text):
     m = re.search(r"\{.*\}", content, flags=re.DOTALL)
     if not m:
         return None, content[:200]
-    # 清理未转义控制字符（模型偶发输出字面换行/制表符）
-    raw = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", " ", m.group(0))
+    # 清理未转义控制字符（模型偶发输出字面换行/制表符；JSON 字符串内字面 \n\t 均非法）
+    raw = re.sub(r"[\x00-\x1f]", " ", m.group(0))
     try:
         return json.loads(raw), ""
     except Exception as e:
@@ -94,16 +94,23 @@ def process_book(book):
 
 
 def main():
-    # 用法: python3 p6_style_batch.py [limit] [offset] | python3 p6_style_batch.py idx:0,8,10
-    batch = json.load(open("/tmp/batch1.json", encoding="utf-8"))
+    # 用法: python3 p6_style_batch.py [limit] [offset] [outfile] [booklist]
+    #       python3 p6_style_batch.py idx:0,8,10 [outfile] [booklist]
+    if len(sys.argv) > 1 and sys.argv[1].startswith("idx:"):
+        booklist = sys.argv[3] if len(sys.argv) > 3 else "/tmp/batch1.json"
+    else:
+        booklist = sys.argv[4] if len(sys.argv) > 4 else "/tmp/batch1.json"
+    batch = json.load(open(booklist, encoding="utf-8"))
     if len(sys.argv) > 1 and sys.argv[1].startswith("idx:"):
         idxs = [int(x) for x in sys.argv[1][4:].split(",")]
         books = [batch[i] for i in idxs]
+        out = sys.argv[2] if len(sys.argv) > 2 else "/tmp/style_batch_result.json"
     else:
         limit = int(sys.argv[1]) if len(sys.argv) > 1 else 12
         offset = int(sys.argv[2]) if len(sys.argv) > 2 else 0
         books = batch[offset:offset + limit]
-    print(f"批次: {len(books)} 本", flush=True)
+        out = sys.argv[3] if len(sys.argv) > 3 else "/tmp/style_batch_result.json"
+    print(f"批次: {len(books)} 本 → {out}", flush=True)
 
     results = []
     for i, book in enumerate(books, 1):
@@ -133,7 +140,6 @@ def main():
 
     # 汇总保存
     ok = [r for r in results if r["ok"]]
-    out = "/tmp/style_batch_result.json"
     with open(out, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=1)
     print(f"\n完成: {len(ok)}/{len(books)} 成功 → {out}", flush=True)
