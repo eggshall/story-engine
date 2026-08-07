@@ -89,3 +89,18 @@ class StyleGenerateRequest(BaseModel):
     profile_id: str = ""  # 文风画像 ID
     style_prompt: str = ""  # 也可直接传风格描述
     outline: str = ""  # 大纲提示
+
+
+class StyleRecommendItem(BaseModel):
+    """题材匹配推荐项"""
+    profile: StyleProfileResponse
+    score: float = 0.0  # 与题材原型的相似度 (0-1)
+    same_genre: bool = False  # 是否属于目标题材
+
+
+class StyleRecommendResponse(BaseModel):
+    """题材匹配推荐响应"""
+    genre: str = ""  # 目标题材
+    recommendations: List[StyleRecommendItem] = Field(default_factory=list)
+    total: int = 0
+    note: str = ""  # 说明（如题材无画像时的提示）

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 
 @dataclass
@@ -44,10 +44,11 @@ class BaseLLM(ABC):
         ...
 
     @abstractmethod
-    async def chat_stream(self, request: LLMRequest):
+    async def chat_stream(self, request: LLMRequest) -> AsyncGenerator[str, None]:
         """流式聊天，yield 文本块"""
         ...
-        yield  # pragma: no cover
+        if False:  # pragma: no cover
+            yield ""
 
     def format_messages(self, system_prompt: str, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """将 system_prompt + 消息列表拼接为标准 messages 格式"""

@@ -33,7 +33,8 @@ def _get_router() -> ModelRouter:
     if _router is None:
         cfg = get_config()
         models = cfg.get("llm.models", [])
-        _router = ModelRouter(models)
+        default_model = cfg.get("llm.default_model", "") or ""
+        _router = ModelRouter(models, default_model=default_model)
     return _router
 
 

@@ -12,8 +12,13 @@ from story_engine.llm.local_client import LocalLLMClient
 class ModelRouter:
     """模型路由器 — 根据配置自动创建并调度模型"""
 
-    def __init__(self, models_config: List[Dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        models_config: List[Dict[str, Any]],
+        default_model: Optional[str] = None,
+    ) -> None:
         self._clients: Dict[str, BaseLLM] = {}
+        self._default_model = default_model
         self._init_clients(models_config)
 
     def _init_clients(self, models_config: List[Dict[str, Any]]) -> None:
@@ -71,10 +76,23 @@ class ModelRouter:
         request: LLMRequest,
         model_name: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
-        if model_name and model_name in self._clients:
-            async for chunk in self._clients[model_name].chat_stream(request):
+        # 目标模型：显式指定 > 默认模型 > 第一个启用的模型
+        target = model_name or self._default_model
+        used = False
+        if target and target in self._clients:
+            async for chunk in self._clients[target].chat_stream(request):
                 yield chunk
-        else:
+            used = True
+        if not used:
+            # 未指定或指定模型不可用：用第一个可用模型
+            for name, client in self._clients.items():
+                if name == target:
+                    continue
+                async for chunk in client.chat_stream(request):
+                    yield chunk
+                used = True
+                break
+        if not used:
             yield "[Error: 未找到可用模型]"
 
     async def close_all(self) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
@@ -16,6 +17,8 @@ from story_engine.style.schemas import (
     StyleGenerateRequest,
     StyleListResponse,
     StyleProfileResponse,
+    StyleRecommendResponse,
+    StyleRecommendItem,
     StyleSaveRequest,
 )
 
@@ -231,4 +234,57 @@ async def generate_with_style(req: StyleGenerateRequest):
     )
 
     router_inst = _get_router()
-    return EventSourceResponse(event_stream(chat_req, router_inst))
+
+    from story_engine.llm.base import LLMRequest
+
+    async def _stream_style() -> AsyncGenerator[str, None]:
+        request = LLMRequest(
+            messages=chat_req.messages,
+            system_prompt=chat_req.system_prompt,
+            temperature=chat_req.temperature,
+            max_tokens=chat_req.max_tokens,
+        )
+        async for token in router_inst.chat_stream(request, model_name=None):
+            yield token
+
+    return EventSourceResponse(event_stream(_stream_style()))
+
+
+# ── 文风 vs 题材匹配推荐 ───────────────────────────────
+
+
+@router.get("/recommend", response_model=StyleRecommendResponse)
+async def recommend_by_genre(
+    genre: str = "",
+    top_k: int = 5,
+    same_genre_only: bool = False,
+):
+    """按题材推荐文风画像 — 题材原型向量 + 余弦相似度（支持跨题材推荐）"""
+    from story_engine.style.recommend import recommend_profiles
+
+    results = recommend_profiles(
+        genre=genre,
+        top_k=max(1, min(top_k, 70)),
+        include_same_genre_only=same_genre_only,
+    )
+    note = ""
+    if not genre:
+        note = "未指定题材，返回全部画像前几名"
+    elif not results:
+        note = f"题材「{genre}」暂无画像，可先导入语料生成画像"
+    elif same_genre_only and not any(r["same_genre"] for r in results):
+        note = f"题材「{genre}」暂无画像，已按风格相近返回跨题材推荐"
+
+    return StyleRecommendResponse(
+        genre=genre,
+        recommendations=[
+            StyleRecommendItem(
+                profile=StyleProfileResponse(**r["profile"].__dict__),
+                score=r["score"],
+                same_genre=r["same_genre"],
+            )
+            for r in results
+        ],
+        total=len(results),
+        note=note,
+    )
