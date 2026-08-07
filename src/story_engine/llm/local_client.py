@@ -156,7 +156,9 @@ class LocalLLMClient(BaseLLM):
                         try:
                             chunk = json.loads(data_str)
                             delta = chunk.get("choices", [{}])[0].get("delta", {})
-                            c = delta.get("content", "")
+                            # 兼容带推理块的模型 (Qwen3.5 等): 思考阶段 content 为空,
+                            # 内容在 reasoning 字段; content 恢复后正常输出
+                            c = delta.get("content", "") or delta.get("reasoning", "")
                             if c:
                                 yield c
                         except json.JSONDecodeError:

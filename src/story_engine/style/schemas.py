@@ -89,6 +89,7 @@ class StyleGenerateRequest(BaseModel):
     profile_id: str = ""  # 文风画像 ID
     style_prompt: str = ""  # 也可直接传风格描述
     outline: str = ""  # 大纲提示
+    model: str = "deepseek-v4-pro"  # 写作模型: 默认 DeepSeek 专业写作 (本地 qwen 思考块会吃掉 token)
 
 
 class StyleRecommendItem(BaseModel):

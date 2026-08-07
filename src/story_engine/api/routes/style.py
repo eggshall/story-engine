@@ -227,7 +227,7 @@ async def generate_with_style(req: StyleGenerateRequest):
     chat_req = ChatRequest(
         messages=[{"role": "user", "content": user_prompt}],
         system_prompt="你是一位专业小说作家。" + extra_style,
-        model="",
+        model=req.model,
         temperature=0.8,
         stream=True,
         mode="write",
@@ -244,7 +244,7 @@ async def generate_with_style(req: StyleGenerateRequest):
             temperature=chat_req.temperature,
             max_tokens=chat_req.max_tokens,
         )
-        async for token in router_inst.chat_stream(request, model_name=None):
+        async for token in router_inst.chat_stream(request, model_name=req.model or None):
             yield token
 
     return EventSourceResponse(event_stream(_stream_style()))
