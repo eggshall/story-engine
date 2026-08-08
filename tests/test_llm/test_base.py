@@ -1,4 +1,7 @@
 """测试：LLM 模型层"""
+import asyncio
+from unittest.mock import AsyncMock
+
 from story_engine.llm.base import BaseLLM, LLMRequest, LLMResponse
 from story_engine.llm.router import ModelRouter
 
@@ -28,6 +31,7 @@ class TestLLMBase:
             async def chat(self, request): pass
             async def chat_stream(self, request):
                 yield ""
+            async def close(self): pass
 
         client = TestClient({"name": "test", "model_id": "m", "provider": "p"})
         msgs = client.format_messages("系统提示", [{"role": "user", "content": "你好"}])
@@ -64,3 +68,36 @@ class TestModelRouter:
         client = router.get_client("m1")
         assert client is not None
         assert client.name == "m1"
+
+
+class TestCloseAll:
+    def test_close_all_idempotent(self):
+        """close_all() 应可多次安全调用（幂等），并逐个关闭 client"""
+        models = [
+            {"name": "m1", "provider": "openai", "model_id": "m",
+             "base_url": "http://localhost:8080", "api_key": "k", "enabled": True},
+            {"name": "m2", "provider": "openai", "model_id": "m2",
+             "base_url": "http://localhost:8080", "api_key": "k", "enabled": True},
+        ]
+        router = ModelRouter(models)
+        client_mocks = []
+        for name in ("m1", "m2"):
+            m = AsyncMock()
+            router.get_client(name)._client = m
+            client_mocks.append(m)
+
+        async def _close_twice():
+            await router.close_all()
+            await router.close_all()
+
+        asyncio.run(_close_twice())  # 不应抛异常
+        # 每个 client 的 close 被调用
+        for m in client_mocks:
+            m.aclose.assert_called()
+
+    def test_close_all_empty_router(self):
+        """空 router 的 close_all() 应安全"""
+        router = ModelRouter([])
+        async def _close():
+            await router.close_all()
+        asyncio.run(_close())

@@ -8,7 +8,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 
 from story_engine.api.schemas import ApiResponse, ModelConfigRequest
-from story_engine.core.config import get_config
+from story_engine.core.config import get_config, reload_config
 from story_engine.utils.url_utils import validate_public_http_url
 
 router = APIRouter(prefix="/api/models", tags=["models"])
@@ -83,6 +83,8 @@ async def update_model(name: str, req: ModelConfigRequest) -> ApiResponse:
 
     cfg = get_config()
     cfg.save()
+    # 模型配置变更后重建 router，无需重启（见 L6.3）
+    reload_config()
 
     return ApiResponse(success=True, data=_model_to_dict(model))
 

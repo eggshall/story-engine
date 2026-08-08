@@ -38,7 +38,7 @@ def _get_analyzer() -> StyleAnalyzer:
 
 
 @router.get("/profiles", response_model=StyleListResponse)
-async def list_profiles(genre: str = ""):
+def list_profiles(genre: str = ""):
     """列出所有文风画像"""
     db = _get_db()
     profiles = db.list_profiles(genre=genre)
@@ -49,7 +49,7 @@ async def list_profiles(genre: str = ""):
 
 
 @router.get("/profiles/{profile_id}", response_model=StyleProfileResponse)
-async def get_profile(profile_id: str):
+def get_profile(profile_id: str):
     """获取文风画像详情"""
     db = _get_db()
     profile = db.get_profile(profile_id)
@@ -59,7 +59,7 @@ async def get_profile(profile_id: str):
 
 
 @router.post("/profiles", response_model=StyleProfileResponse)
-async def save_profile(req: StyleSaveRequest):
+def save_profile(req: StyleSaveRequest):
     """创建/更新文风画像"""
     db = _get_db()
     profile = StyleProfile(
@@ -78,7 +78,7 @@ async def save_profile(req: StyleSaveRequest):
 
 
 @router.delete("/profiles/{profile_id}")
-async def delete_profile(profile_id: str):
+def delete_profile(profile_id: str):
     """删除文风画像"""
     db = _get_db()
     ok = db.delete_profile(profile_id)
@@ -88,14 +88,14 @@ async def delete_profile(profile_id: str):
 
 
 @router.get("/genres")
-async def list_genres():
+def list_genres():
     """列出所有题材分类"""
     db = _get_db()
     return {"genres": db.get_genres()}
 
 
 @router.get("/search")
-async def search_profiles(q: str = ""):
+def search_profiles(q: str = ""):
     """搜索文风画像"""
     if not q:
         db = _get_db()
@@ -243,8 +243,13 @@ async def generate_with_style(req: StyleGenerateRequest):
             temperature=chat_req.temperature,
             max_tokens=chat_req.max_tokens,
         )
-        async for token in router_inst.chat_stream(request, model_name=req.model or None):
-            yield token
+        gen = router_inst.chat_stream(request, model_name=req.model or None)
+        try:
+            async for token in gen:
+                yield token
+        finally:
+            if hasattr(gen, "aclose"):
+                await gen.aclose()
 
     return EventSourceResponse(event_stream(_stream_style()))
 
@@ -253,7 +258,7 @@ async def generate_with_style(req: StyleGenerateRequest):
 
 
 @router.get("/recommend", response_model=StyleRecommendResponse)
-async def recommend_by_genre(
+def recommend_by_genre(
     genre: str = "",
     top_k: int = 5,
     same_genre_only: bool = False,

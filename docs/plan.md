@@ -77,69 +77,69 @@
 - **位置**：`src/story_engine/llm/local_client.py:41-53,26-39,65-66,117`
 - **问题**：`_check_server` 首个调用用 `read_timeout=10` 创建实例级复用 client，后续 120s/300s 超时全部被 `self._client is not None` 忽略。
 - **任务**：
-  - [ ] L1.1 探测/预热改用临时 client（不复用持久 client）
-  - [ ] L1.2 持久 client 创建时按当前配置的 `read_timeout`/`connect_timeout` 重建；chat 每次显式传 timeout
-  - [ ] L1.3 补测试：mock `_get_client` 断言 chat 走 300s 超时、探测走 10s
+  - [x] L1.1 探测/预热改用临时 client（不复用持久 client）
+  - [x] L1.2 持久 client 创建时按当前配置的 `read_timeout`/`connect_timeout` 重建；chat 每次显式传 timeout
+  - [x] L1.3 补测试：mock `_get_client` 断言 chat 走 300s 超时、探测走 10s
 
 ### L2. 远程客户端忽略注入的超时配置
 - **位置**：`src/story_engine/llm/api_client.py:19,24,115,117`；`src/story_engine/api/routes/generate.py:38-46`
 - **任务**：
-  - [ ] L2.1 统一读取 `read_timeout`/`connect_timeout`，支持请求级覆盖
-  - [ ] L2.2 补测试：注入超时被 `chat()`/`chat_stream()` 消费
+  - [x] L2.1 统一读取 `read_timeout`/`connect_timeout`，支持请求级覆盖（`LLMRequest.timeout`）
+  - [x] L2.2 补测试：注入超时被 `chat()`/`chat_stream()` 消费
 
 ### L3. close_all() 从未调用 → httpx 连接池泄漏
 - **位置**：`src/story_engine/llm/router.py:98-102`；`src/story_engine/api/main.py`（无 lifespan）
 - **任务**：
-  - [ ] L3.1 `main.py` 注册 `lifespan`，shutdown 时 `await _router.close_all()`
-  - [ ] L3.2 CLI 退出路径同样关闭（`cli.py` 入口包 try/finally）
-  - [ ] L3.3 `BaseLLM.close()` 改为 `abstractmethod` 或文档强制子类实现
-  - [ ] L3.4 补测试：`router.close_all()` 幂等可调用
+  - [x] L3.1 `main.py` 注册 `lifespan`，shutdown 时 `await _router.close_all()`
+  - [x] L3.2 CLI 退出路径同样关闭（`cli.py` 入口包 try/finally）
+  - [x] L3.3 `BaseLLM.close()` 改为 `abstractmethod` 或文档强制子类实现
+  - [x] L3.4 补测试：`router.close_all()` 幂等可调用
 
 ### L4. 健康探测：3 次串行探测拖慢失败路径 + 无并发保护
 - **位置**：`src/story_engine/llm/local_client.py:74,124,41-53,23,55-90`
 - **任务**：
-  - [ ] L4.1 健康状态缓存 + TTL（如 30s），`_warmed` 重置策略补上
-  - [ ] L4.2 探测/预热加 `asyncio.Lock` 串行化，消除 `_warmed` 竞态
+  - [x] L4.1 健康状态缓存 + TTL（如 30s），`_warmed` 重置策略补上
+  - [x] L4.2 探测/预热加 `asyncio.Lock` 串行化，消除 `_warmed` 竞态
 
 ### L5. fallback 丢失诊断信息 + 误标前缀
 - **位置**：`src/story_engine/llm/router.py:63-72,74-96`；`api_client.py:101-102,200-201`；`local_client.py:165-166`
 - **任务**：
-  - [ ] L5.1 全部失败时聚合各模型原始错误返回（去敏）
-  - [ ] L5.2 未命中目标模型时不再加 `[Fallback → ...]` 前缀；仅真实 fallback 才标
-  - [ ] L5.3 流式模式支持模型级 fallback；错误以结构化事件抛出，不再 `yield "[Error: ...]"` 混入正文
+  - [x] L5.1 全部失败时聚合各模型原始错误返回（去敏）
+  - [x] L5.2 未命中目标模型时不再加 `[Fallback → ...]` 前缀；仅真实 fallback 才标
+  - [x] L5.3 流式模式支持模型级 fallback；错误以结构化事件抛出（`LLMStreamError`），不再 `yield "[Error: ...]"` 混入正文
 
 ### L6. 配置加载零校验 + _get_router 污染共享配置
 - **位置**：`src/story_engine/core/config.py:53-58`；`src/story_engine/llm/router.py:24-30`；`src/story_engine/api/routes/generate.py:30-48`
 - **任务**：
-  - [ ] L6.1 YAML 加载失败给清晰错误 + 空配置回退；加载后用 Pydantic 校验 `llm.models`
-  - [ ] L6.2 `_get_router()` 深拷贝模型 dict 后再注入 timeout，杜绝 `cfg.save()` 持久化注入值
-  - [ ] L6.3 router 实例懒加载加锁，或改 lifespan 初始化；提供 `reload_config()` 时重建 router 的钩子（解决 PATCH 配置需重启问题）
+  - [x] L6.1 YAML 加载失败给清晰错误 + 空配置回退；加载后用 Pydantic 校验 `llm.models`
+  - [x] L6.2 `_get_router()` 深拷贝模型 dict 后再注入 timeout，杜绝 `cfg.save()` 持久化注入值
+  - [x] L6.3 router 实例懒加载加锁，或改 lifespan 初始化；提供 `reload_config()` 时重建 router 的钩子（解决 PATCH 配置需重启问题）
 
 ### L7. reasoning 模型 content 为空被误判错误
 - **位置**：`src/story_engine/llm/api_client.py:56-57,95-98`；`local_client.py:158-160`
 - **任务**：
-  - [ ] L7.1 对齐 local client：content 为空时回退 `reasoning_content`
-  - [ ] L7.2 补测试：mock reasoning_content 返回
+  - [x] L7.1 对齐 local client：content 为空时回退 `reasoning_content`
+  - [x] L7.2 补测试：mock reasoning_content 返回
 
 ### L8. SSE 语义与资源清理
 - **位置**：`src/story_engine/api/sse.py:15-22`；`src/story_engine/api/routes/generate.py:127-180,166,180,92-100`；`style.py:239-247`
 - **任务**：
-  - [ ] L8.1 统一 SSE 事件协议：错误转 `{"event":"error"}`，内部生成器只 yield 纯文本/结构化对象，外层统一包装（消除双重 JSON 编码）
-  - [ ] L8.2 生成器加 `try/finally`，客户端断开时释放 httpx 流连接
-  - [ ] L8.3 补 `event_stream()` 单测 + 断开中断测试
+  - [x] L8.1 统一 SSE 事件协议：错误转 `{"event":"error"}`，内部生成器只 yield 纯文本/结构化对象，外层统一包装（消除双重 JSON 编码）
+  - [x] L8.2 生成器加 `try/finally`，客户端断开时释放 httpx 流连接
+  - [x] L8.3 补 `event_stream()` 单测 + 断开中断测试
 
 ### L9. 错误处理统一
 - **位置**：`src/story_engine/api/main.py`（无全局 exception handler）；`novel.py:49,376,387,403`；`export.py:67-71`；`generate.py:75,112`
 - **任务**：
-  - [ ] L9.1 约定：业务失败统一 `HTTPException`(4xx)，成功统一 200
-  - [ ] L9.2 `@app.exception_handler(Exception)` 统一记日志 + 返回脱敏信息（不泄露 `str(e)`）
-  - [ ] L9.3 移除各端点 `str(e)` 回显
+  - [x] L9.1 约定：业务失败统一 `HTTPException`(4xx)，成功统一 200
+  - [x] L9.2 `@app.exception_handler(Exception)` 统一记日志 + 返回脱敏信息（不泄露 `str(e)`）
+  - [x] L9.3 移除各端点 `str(e)` 回显（敏感异常细节已脱敏；路径校验类明确提示保留）
 
 ### L10. async 端点内阻塞 IO
 - **位置**：`novel.py`（CRUD 同步 IO）、`research.py:50-64`、`style.py`（同步 sqlite）、`generate.py:80-83`、`system.py:22-37`、`tools/web_search.py:415-424`（`subprocess ip route` 阻塞 3s）
 - **任务**：
-  - [ ] L10.1 纯同步 IO 端点改 `def`（FastAPI 自动线程池）或 `anyio.to_thread`
-  - [ ] L10.2 `subprocess.run(['ip','route'])` 加超时 + 缓存，避免每次阻塞 3s
+  - [x] L10.1 纯同步 IO 端点改 `def`（FastAPI 自动线程池）或 `anyio.to_thread`（novel.py 全部 20 端点、system.py、style.py 纯 DB 端点、research list 改 def；generate/research 的同步 IO 走 `anyio.to_thread`）
+  - [x] L10.2 `subprocess.run(['ip','route'])` 加超时 + 缓存，避免每次阻塞 3s（已有 `timeout=3` + 60s 缓存，确认无误）
 
 ### L11. 输入校验补齐
 - **位置**：`src/story_engine/api/schemas.py:21-27,70,79`；`novel.py:111-382`（大量 `body: dict`）

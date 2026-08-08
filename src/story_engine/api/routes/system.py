@@ -7,7 +7,7 @@ from typing import Any, Dict
 from fastapi import APIRouter
 
 from story_engine.api.schemas import ApiResponse, UpdateSettingsRequest
-from story_engine.core.config import get_config
+from story_engine.core.config import get_config, reload_config
 
 router = APIRouter(prefix="/api", tags=["system"])
 
@@ -38,7 +38,7 @@ def _list_mounts() -> list:
 
 
 @router.get("/system/paths")
-async def get_system_paths() -> ApiResponse:
+def get_system_paths() -> ApiResponse:
     """获取系统路径建议"""
     windows_user = _detect_windows_user()
     mounts = _list_mounts()
@@ -85,13 +85,13 @@ def _get_writing_settings() -> Dict[str, Any]:
 
 
 @router.get("/settings")
-async def get_settings() -> ApiResponse:
+def get_settings() -> ApiResponse:
     """获取默认写作参数"""
     return ApiResponse(success=True, data=_get_writing_settings())
 
 
 @router.post("/settings")
-async def update_settings(req: UpdateSettingsRequest) -> ApiResponse:
+def update_settings(req: UpdateSettingsRequest) -> ApiResponse:
     """更新默认写作参数（持久化到 config.yaml）"""
     cfg = get_config()
 
@@ -103,4 +103,6 @@ async def update_settings(req: UpdateSettingsRequest) -> ApiResponse:
         cfg.set("writing.max_tokens", req.max_tokens)
 
     cfg.save()
+    # 默认模型变更时重建 router（见 L6.3）
+    reload_config()
     return ApiResponse(success=True, data=_get_writing_settings())

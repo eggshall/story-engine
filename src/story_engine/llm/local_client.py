@@ -8,7 +8,7 @@ from typing import Any, AsyncGenerator, Dict
 
 import httpx
 
-from story_engine.llm.base import BaseLLM, LLMRequest, LLMResponse
+from story_engine.llm.base import BaseLLM, LLMRequest, LLMResponse, LLMStreamError
 
 # 健康探测结果缓存 TTL（秒）
 _HEALTH_TTL = 30
@@ -27,7 +27,7 @@ class LocalLLMClient(BaseLLM):
         self.connect_timeout = config.get("connect_timeout", 10)
         self._warmed = False
         self._client: httpx.AsyncClient | None = None
-        self._client_read_timeout: int | None = None
+        self._client_read_timeout: float | None = None
         self._health: tuple[bool, str] | None = None
         self._health_at: float = 0.0
         self._lock = asyncio.Lock()
@@ -37,7 +37,7 @@ class LocalLLMClient(BaseLLM):
             self._client = None
         self._client_read_timeout = None
 
-    def _get_client(self, read_timeout: int | None = None) -> httpx.AsyncClient:
+    def _get_client(self, read_timeout: float | None = None) -> httpx.AsyncClient:
         """按当前配置（或显式传入）的超时构建持久客户端，超时变化时重建。"""
         effective_timeout = read_timeout or self.read_timeout
         timeout = httpx.Timeout(
@@ -131,12 +131,14 @@ class LocalLLMClient(BaseLLM):
             "stream": False,
         }
 
+        effective_timeout = request.timeout or self.read_timeout
         try:
-            client = self._get_client(read_timeout=self.read_timeout)
+            client = self._get_client(read_timeout=effective_timeout)
             resp = await client.post("/v1/chat/completions", json=payload)
             resp.raise_for_status()
             data = resp.json()
-            content = data["choices"][0]["message"]["content"]
+            msg = data["choices"][0].get("message", {})
+            content = msg.get("content") or msg.get("reasoning_content", "") or ""
             usage = data.get("usage")
             return LLMResponse(
                 content=content,
@@ -147,7 +149,7 @@ class LocalLLMClient(BaseLLM):
         except httpx.TimeoutException:
             return LLMResponse(
                 success=False,
-                error=f"本地模型请求超时（{self.read_timeout}s）",
+                error=f"本地模型请求超时（{effective_timeout}s）",
                 provider=self.provider,
             )
         except Exception as e:
@@ -156,8 +158,7 @@ class LocalLLMClient(BaseLLM):
     async def chat_stream(self, request: LLMRequest) -> AsyncGenerator[str, None]:
         err = await self._ensure_ready()
         if err:
-            yield f"\n[Error: {err}]"
-            return
+            raise LLMStreamError(err)
 
         payload = {
             "model": self.model_id or "local",
@@ -167,8 +168,9 @@ class LocalLLMClient(BaseLLM):
             "stream": True,
         }
 
+        effective_timeout = request.timeout or self.read_timeout
         try:
-            client = self._get_client(read_timeout=self.read_timeout)
+            client = self._get_client(read_timeout=effective_timeout)
             async with client.stream("POST", "/v1/chat/completions", json=payload) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
@@ -189,7 +191,7 @@ class LocalLLMClient(BaseLLM):
                         except json.JSONDecodeError:
                             continue
         except Exception as e:
-            yield f"\n[Error: {e}]"
+            raise LLMStreamError(str(e)) from e
 
     async def close(self) -> None:
         if self._client:

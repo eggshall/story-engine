@@ -1,6 +1,10 @@
-"""测试：API 删除全流程"""
-import asyncio
+"""测试：API 删除全流程（fixture 隔离，不污染真实数据目录）"""
 
+import tempfile
+from pathlib import Path
+
+import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
@@ -8,33 +12,53 @@ from story_engine.api.main import app
 client = TestClient(app)
 
 
-async def _run_test():
-    # 通过 API 测试完整流程
-    # 1. 创建
-    resp = client.post("/api/novel/", json={"title": "删除测试", "author": "测试"})
-    d = resp.json()
-    print(f"1. 创建: {d['success']}, id={d['data'].get('id', '?')}")
-    nid = d["data"]["id"]
+@pytest.fixture(autouse=True)
+def setup_test_env(monkeypatch):
+    """建立隔离的测试配置与小说存储目录"""
+    tmp_cfg = Path(tempfile.mktemp(suffix=".yaml"))
+    config_data = {
+        "llm": {"default_model": "test-model", "models": []},
+    }
+    with open(tmp_cfg, "w", encoding="utf-8") as f:
+        yaml.dump(config_data, f)
 
-    # 2. 列表确认存在
-    resp = client.get("/api/novel/")
-    ids = [n["id"] for n in resp.json()["data"]]
-    print(f"2. 列表中有吗: {nid in ids}")
+    monkeypatch.setattr("story_engine.core.config._config_instance", None)
+    monkeypatch.setattr("story_engine.core.config.DEFAULT_CONFIG_PATH", tmp_cfg)
 
-    # 3. 删除
-    resp = client.delete(f"/api/novel/{nid}")
-    print(f"3. 删除返回: {resp.status_code} {resp.json()}")
+    import story_engine.tools.novel_storage as ns
+    tmp_root = Path(tempfile.mktemp())
+    monkeypatch.setattr(ns, "NOVELS_ROOT", tmp_root)
+    ns.NOVELS_ROOT.mkdir(parents=True, exist_ok=True)
 
-    # 4. 列表确认删除
-    resp = client.get("/api/novel/")
-    ids2 = [n["id"] for n in resp.json()["data"]]
-    print(f"4. 删除后列表中: {nid in ids2}")
-
-    # 5. 尝试获取已删除的小说 → 应该失败
-    resp = client.get(f"/api/novel/{nid}")
-    print(f"5. 获取已删除: {resp.json().get('success','?')} (应为False)")
-
-    print("\n✅ 测试完成")
+    yield ns.NOVELS_ROOT
 
 
-asyncio.run(_run_test())
+class TestDeleteFlow:
+    """小说创建 → 列表 → 删除 → 确认的全流程"""
+
+    def test_create_list_delete_flow(self, setup_test_env):
+        # 1. 创建
+        resp = client.post("/api/novel/", json={"title": "删除测试", "author": "测试"})
+        assert resp.status_code == 200
+        d = resp.json()
+        assert d["success"] is True
+        nid = d["data"]["id"]
+
+        # 2. 列表确认存在
+        resp = client.get("/api/novel/")
+        ids = [n["id"] for n in resp.json()["data"]]
+        assert nid in ids
+
+        # 3. 删除
+        resp = client.delete(f"/api/novel/{nid}")
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+        # 4. 列表确认已删除
+        resp = client.get("/api/novel/")
+        ids2 = [n["id"] for n in resp.json()["data"]]
+        assert nid not in ids2
+
+        # 5. 获取已删除的小说 → 应失败
+        resp = client.get(f"/api/novel/{nid}")
+        assert resp.json().get("success") is False

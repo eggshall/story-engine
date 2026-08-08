@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
+import anyio
 from fastapi import APIRouter, Query
 
 from story_engine.api.schemas import ApiResponse, ResearchRequest, ResearchResult
@@ -60,8 +61,12 @@ async def research(req: ResearchRequest) -> ApiResponse:
         "category": req.lore_category if req.save_to_lore else "research",
     }
     record_file = RESEARCH_DIR / f"{ts}_{safe_query[:20]}.json"
-    with open(record_file, "w", encoding="utf-8") as f:
-        json.dump(record, f, ensure_ascii=False, indent=2)
+
+    def _write_record() -> None:
+        with open(record_file, "w", encoding="utf-8") as f:
+            json.dump(record, f, ensure_ascii=False, indent=2)
+
+    await anyio.to_thread.run_sync(_write_record)
 
     return ApiResponse(
         success=True,
@@ -76,7 +81,7 @@ async def research(req: ResearchRequest) -> ApiResponse:
 
 
 @router.get("/")
-async def list_research(
+def list_research(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> ApiResponse:

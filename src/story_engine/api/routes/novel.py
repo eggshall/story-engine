@@ -35,14 +35,14 @@ router = APIRouter(prefix="/api/novel", tags=["novel"])
 
 
 @router.get("/")
-async def api_list_novels() -> ApiResponse:
+def api_list_novels() -> ApiResponse:
     """列出所有小说"""
     novels = list_novels()
     return ApiResponse(success=True, data=novels)
 
 
 @router.get("/{novel_id}")
-async def api_get_novel(novel_id: str) -> ApiResponse:
+def api_get_novel(novel_id: str) -> ApiResponse:
     """获取小说详情"""
     novel = load_novel(novel_id)
     if not novel:
@@ -66,7 +66,7 @@ async def api_get_novel(novel_id: str) -> ApiResponse:
 
 
 @router.post("/")
-async def api_create_novel(req: NovelCreateRequest) -> ApiResponse:
+def api_create_novel(req: NovelCreateRequest) -> ApiResponse:
     """创建新小说（独立目录）"""
     novel = Novel(
         title=req.title,
@@ -100,7 +100,7 @@ async def api_create_novel(req: NovelCreateRequest) -> ApiResponse:
 
 
 @router.delete("/{novel_id}")
-async def api_delete_novel(novel_id: str) -> ApiResponse:
+def api_delete_novel(novel_id: str) -> ApiResponse:
     """删除整部小说（含所有数据）"""
     if delete_novel(novel_id):
         return ApiResponse(success=True, message=f"已删除: {novel_id}")
@@ -111,7 +111,7 @@ async def api_delete_novel(novel_id: str) -> ApiResponse:
 
 
 @router.post("/{novel_id}/update")
-async def api_update_novel(novel_id: str, body: dict) -> ApiResponse:
+def api_update_novel(novel_id: str, body: dict) -> ApiResponse:
     """更新小说元信息"""
     novel = load_novel(novel_id)
     if not novel:
@@ -127,7 +127,7 @@ async def api_update_novel(novel_id: str, body: dict) -> ApiResponse:
 
 
 @router.post("/{novel_id}/chapters")
-async def api_add_chapter(novel_id: str, body: dict) -> ApiResponse:
+def api_add_chapter(novel_id: str, body: dict) -> ApiResponse:
     """添加章节"""
     from story_engine.core.models import Chapter
 
@@ -146,7 +146,7 @@ async def api_add_chapter(novel_id: str, body: dict) -> ApiResponse:
 
 
 @router.delete("/{novel_id}/chapters/{chapter_number}")
-async def api_delete_chapter(novel_id: str, chapter_number: int) -> ApiResponse:
+def api_delete_chapter(novel_id: str, chapter_number: int) -> ApiResponse:
     """删除章节"""
     novel = load_novel(novel_id)
     if not novel:
@@ -165,7 +165,7 @@ async def api_delete_chapter(novel_id: str, chapter_number: int) -> ApiResponse:
 
 
 @router.post("/{novel_id}/chapters/reorder")
-async def api_reorder_chapters(novel_id: str, body: dict) -> ApiResponse:
+def api_reorder_chapters(novel_id: str, body: dict) -> ApiResponse:
     """重排章节顺序: body = {order: [3, 1, 2, ...]}"""
     novel = load_novel(novel_id)
     if not novel:
@@ -185,7 +185,7 @@ async def api_reorder_chapters(novel_id: str, body: dict) -> ApiResponse:
 
 
 @router.post("/{novel_id}/chapters/{chapter_number}/save")
-async def api_save_chapter(novel_id: str, chapter_number: int, body: dict) -> ApiResponse:
+def api_save_chapter(novel_id: str, chapter_number: int, body: dict) -> ApiResponse:
     """保存单章内容"""
     novel = load_novel(novel_id)
     if not novel:
@@ -208,14 +208,14 @@ async def api_save_chapter(novel_id: str, chapter_number: int, body: dict) -> Ap
 
 
 @router.get("/{novel_id}/memory")
-async def api_get_memory(novel_id: str) -> ApiResponse:
+def api_get_memory(novel_id: str) -> ApiResponse:
     """获取小说的灵魂记忆"""
     mem = load_soul_memory(novel_id)
     return ApiResponse(success=True, data=mem.model_dump())
 
 
 @router.post("/{novel_id}/memory")
-async def api_update_memory(novel_id: str, data: dict) -> ApiResponse:
+def api_update_memory(novel_id: str, data: dict) -> ApiResponse:
     """更新灵魂记忆"""
     mem = load_soul_memory(novel_id)
     # 更新各字段
@@ -244,7 +244,7 @@ async def api_update_memory(novel_id: str, data: dict) -> ApiResponse:
 
 
 @router.post("/{novel_id}/analyze")
-async def api_analyze_style(novel_id: str, body: dict) -> ApiResponse:
+def api_analyze_style(novel_id: str, body: dict) -> ApiResponse:
     """分析一段文本，生成文风档案"""
     text = body.get("text", "")
     profile_name = body.get("name", "未命名文风")
@@ -264,7 +264,7 @@ async def api_analyze_style(novel_id: str, body: dict) -> ApiResponse:
 
 
 @router.post("/{novel_id}/analyze/style")
-async def api_analyze_chapter_style(novel_id: str, body: dict) -> ApiResponse:
+def api_analyze_chapter_style(novel_id: str, body: dict) -> ApiResponse:
     """分析章节文本的风格指标 + 写作技法"""
     novel = load_novel(novel_id)
     if not novel:
@@ -298,7 +298,7 @@ async def api_analyze_chapter_style(novel_id: str, body: dict) -> ApiResponse:
 
 
 @router.post("/{novel_id}/analyze/consistency")
-async def api_check_consistency(novel_id: str, body: dict) -> ApiResponse:
+def api_check_consistency(novel_id: str, body: dict) -> ApiResponse:
     """检查章节文本中角色名/地名的一致性"""
     novel = load_novel(novel_id)
     if not novel:
@@ -340,7 +340,7 @@ async def api_check_consistency(novel_id: str, body: dict) -> ApiResponse:
 
 
 @router.get("/{novel_id}/styles")
-async def api_list_styles(novel_id: str) -> ApiResponse:
+def api_list_styles(novel_id: str) -> ApiResponse:
     """列出一部小说的所有文风档案"""
     profiles = list_style_profiles(novel_id)
     return ApiResponse(success=True, data=profiles)
@@ -350,14 +350,14 @@ async def api_list_styles(novel_id: str) -> ApiResponse:
 
 
 @router.get("/user/profile")
-async def api_get_user_profile() -> ApiResponse:
+def api_get_user_profile() -> ApiResponse:
     """获取用户画像"""
     profile = load_user_profile()
     return ApiResponse(success=True, data=profile.model_dump())
 
 
 @router.post("/user/profile")
-async def api_update_user_profile(body: dict) -> ApiResponse:
+def api_update_user_profile(body: dict) -> ApiResponse:
     """更新用户画像"""
     profile = load_user_profile()
     for k, v in body.items():
@@ -371,7 +371,7 @@ async def api_update_user_profile(body: dict) -> ApiResponse:
 
 
 @router.get("/{novel_id}/map")
-async def api_get_map(novel_id: str) -> ApiResponse:
+def api_get_map(novel_id: str) -> ApiResponse:
     """获取小说地图数据"""
     from story_engine.tools.novel_storage import load_map_data
     novel = load_novel(novel_id)
@@ -382,7 +382,7 @@ async def api_get_map(novel_id: str) -> ApiResponse:
 
 
 @router.post("/{novel_id}/map")
-async def api_save_map(novel_id: str, body: dict) -> ApiResponse:
+def api_save_map(novel_id: str, body: dict) -> ApiResponse:
     """保存小说地图数据"""
     from story_engine.tools.novel_storage import load_map_data, save_map_data
     novel = load_novel(novel_id)
@@ -398,7 +398,7 @@ async def api_save_map(novel_id: str, body: dict) -> ApiResponse:
 
 
 @router.post("/{novel_id}/map/image")
-async def api_upload_map_image(novel_id: str) -> ApiResponse:
+def api_upload_map_image(novel_id: str) -> ApiResponse:
     """上传地图图片占位 — 返回假路径（后续可升级为真实文件上传）"""
     from story_engine.tools.novel_storage import _novel_dir
     novel = load_novel(novel_id)

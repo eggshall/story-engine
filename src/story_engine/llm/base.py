@@ -16,6 +16,7 @@ class LLMRequest:
     max_tokens: int = 4096
     stop: Optional[List[str]] = None
     stream: bool = False
+    timeout: Optional[float] = None  # 请求级超时覆盖（秒），None 时用客户端配置
 
 
 @dataclass
@@ -27,6 +28,18 @@ class LLMResponse:
     usage: Optional[Dict[str, int]] = None
     success: bool = True
     error: str = ""
+
+
+class LLMStreamError(Exception):
+    """流式生成过程中的模型级错误。
+
+    由客户端在无法继续流式输出时抛出，供 router 做模型级 fallback 或
+    由 SSE 层包装为结构化 error 事件（不再混入正文）。
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
 
 
 class BaseLLM(ABC):
@@ -50,9 +63,14 @@ class BaseLLM(ABC):
         if False:  # pragma: no cover
             yield ""
 
+    @abstractmethod
     async def close(self) -> None:
-        """释放底层资源（默认为空操作，子类按需覆写）"""
-        return None
+        """释放底层资源（连接池等），所有子类必须实现。
+
+        每次构建持久 httpx client 时，close() 负责 aclose 底层连接池，
+        防止连接池泄漏（见 L3）。
+        """
+        ...
 
     def format_messages(self, system_prompt: str, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """将 system_prompt + 消息列表拼接为标准 messages 格式"""

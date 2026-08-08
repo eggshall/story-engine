@@ -2,14 +2,27 @@
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
 from story_engine.style.db import StyleDb, StyleProfile
 from story_engine.style.recommend import recommend_profiles
+
+
+@pytest.fixture(autouse=True)
+def _isolated_config(monkeypatch):
+    """隔离 API 配置：无 api_key 的空配置，避免本地 config.yaml 触发鉴权 401"""
+    tmp_cfg = Path(tempfile.mktemp(suffix=".yaml"))
+    with open(tmp_cfg, "w", encoding="utf-8") as f:
+        yaml.dump({"llm": {"default_model": "test-model", "models": []}}, f)
+    monkeypatch.setattr("story_engine.core.config._config_instance", None)
+    monkeypatch.setattr("story_engine.core.config.DEFAULT_CONFIG_PATH", tmp_cfg)
+    yield
 
 
 def _make_profile(name: str, genre: str, vocab: int, sent: int,

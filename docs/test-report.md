@@ -1,7 +1,7 @@
 # 测试报告 — story-engine
 
 > 生成时间：2026-08-08
-> 覆盖范围：已实现功能（`docs/plan.md` Phase P0 安全红线 S1–S7）补充测试 + 完整测试套件回归 + 修复 S2 自定义路径回归 / S1 空白 id / C5.1 索引清理
+> 覆盖范围：`docs/plan.md` Phase P1 已实现功能（L1–L10）补充/完善测试 + 完整套件回归（含此前 P0 S1–S7 全部测试）+ 修复 P1 实现遗留的 lint/type 问题
 
 ---
 
@@ -9,108 +9,100 @@
 
 | 指标 | 结果 |
 |------|------|
-| **测试总数** | **400 passed**（此前 395） |
-| **本轮新增测试** | **+5 个**（净增 304 → 400） |
-| **总覆盖率** | **67%**（novel_storage 91% → 93%） |
-| **静态检查** | ruff ✅ / mypy ✅ |
+| **测试总数** | **490 passed**（此前 443） |
+| **本轮新增测试** | **+47 个**（净增 443 → 490） |
+| **总覆盖率** | **74%**（此前 67%，P1 关键模块补至 98%–100%） |
+| **静态检查** | ruff ✅ / mypy ✅（本轮顺带修复 P1 实现遗留的 5 处 lint + 2 处 type 问题） |
 | **耗时** | ~7s |
 
 ### 运行命令
 
 ```bash
-.venv/bin/python -m pytest -q          # 400 passed
+.venv/bin/python -m pytest -q          # 490 passed
 .venv/bin/python -m ruff check src tests # All checks passed!
 .venv/bin/python -m mypy src            # Success: no issues found
 ```
 
 ---
 
-## 2. 补充的测试（按 plan.md 已实现功能）
+## 2. 补充的测试（按 plan.md P1 已实现功能 L1–L10）
 
-### 新增文件
+### 新增 / 扩展文件
 
-| 文件 | 对应任务 | 说明 |
-|------|---------|------|
-| `tests/test_file_utils.py` | **S2** | `resolve_within` 路径安全单测（绝对路径/`..`/Windows 盘符/symlink 逃逸）+ read/write/detect_encoding |
-| `tests/test_url_utils.py` | **S6** | `validate_public_http_url` / `is_private_host` / `is_loopback_host` SSRF 校验单测（内网/元数据/整数 IP/DNS 解析） |
+| 文件 | 对应任务 | 本轮补充内容 |
+|------|---------|-------------|
+| `tests/test_llm/test_local_client.py` | **L1 / L4 / L7 / L5** | 请求级超时覆盖 `_get_client`、探测成功路径（`<500` 判定 + 缓存）、预热成功置位 / `_warmed` 短路、预热失败、chat 未就绪 / 超时 / 泛异常结构化错误、流式未就绪抛 `LLMStreamError`、坏 JSON / 空行 / 注释行容错、流式异常转 `LLMStreamError`、`close()` 释放 client |
+| `tests/test_llm/test_api_client.py` | **L2 / L7 / L5** | stop 载荷、api_key 请求头、流式空行/坏 JSON 容错、流式异常转 `LLMStreamError`、泛异常掩码、`close()`；**Anthropic 全链路**：请求头（x-api-key / 版本 / 超时）、system_prompt、多段 text 拼接、chat/chat_stream 错误、流式 `content_block_delta` |
+| `tests/test_llm/test_router.py` | **L5 / L3** | `_pick_target` 默认模型 / 无默认取首个、`fallback=False` 直返失败、无模型错误信息、错误无 detail 兜底、流式"指定模型不在列表落默认"前缀、泛异常触发流式 fallback、全部泛异常聚合、无模型流式抛错、`close_all` 吞单 client 异常、provider→客户端映射、`list_models` |
+| `tests/test_llm/test_base.py` | **L3** | `close_all()` 幂等 / 空 router 安全 |
+| `tests/test_config_p1.py` | **L6** | `_validate_models` None/非列表/默认值填充、OSError 读取失败回退、`get` 中途非 dict 兜底、reload 无事件循环清空 router、运行中事件循环内调度 `close_router`、reload import 失败静默 |
+| `tests/test_error_handling.py` | **L9** | `BusinessError`→400、lifespan shutdown 调用 `close_router`、shutdown 异常被吞 |
+| `tests/test_writer/test_sse.py` | **L8** | 修复 `test_unknown_exception_masked` 的"coroutine was never awaited"告警（改真实生成器 + 显式 aclose） |
+| `tests/test_style.py` / `test_style_recommend.py` / `test_delete_flow.py` | **L10 / E2** | 隔离配置 fixture（不触发本地鉴权）、删除流程断言化 |
 
-### 扩展文件
+### 覆盖的 plan.md P1 任务对照
 
-| 文件 | 对应任务 | 补充内容 |
-|------|---------|---------|
-| `tests/test_tools/test_novel_storage.py` | **S1 / S3 / C5.1** | `_safe_novel_id` 白名单边界、`_slug` 清洗、`_safe_json_path`、`convert_windows_path`、索引注册/损坏容错、`_ensure_within`、损坏数据加载、自定义路径拒绝 |
-| `tests/test_models.py` | **S6** | 探测端点 ollama `/api/tags` 分支、5xx 错误分支、3xx 视为连接成功 |
-| `tests/test_auth.py` | **S5** | 中间件非回环来源 403 判定、回环放行、`/api/health` 免鉴权、CORS 白名单 Origin 回显与拒绝 |
-| `tests/test_tools/test_web_search.py` | **S6.2** | `fetch_page_content` 更多内网/元数据/整数 IP 拒绝用例 + 公网 https 正常抓取 + 网络异常容错 |
+| plan.md 任务 | 测试覆盖 |
+|-------------|---------|
+| **L1** 本地超时配置失效 | `TestTimeout` — chat 走 300s、探测走 10s 临时 client、超时变化重建持久 client、请求级覆盖 |
+| **L2** 远程忽略注入超时 | `TestTimeoutInjection` / `TestAnthropic::test_chat_stream_content_block_delta` — chat/chat_stream 消费 `LLMRequest.timeout` |
+| **L3** 连接池泄漏 | `TestCloseAll`（router）/ `TestClose`（local）/ `TestStreamTolerance::test_close_releases_client` / `TestAnthropic::test_close_releases_client` / `TestLifespan`（lifespan shutdown） |
+| **L4** 健康探测缓存 + 锁 | `TestHealthCache` / `TestEnsureReady` — TTL 缓存、`asyncio.Lock` 串行化、`_warmed` 短路 |
+| **L5** fallback 诊断 | `TestChatFallback` / `TestChatStream` — 聚合错误、前缀标记规则、流式 fallback、`LLMStreamError` 结构化抛出 |
+| **L6** 配置校验 + 污染 | `TestConfigLoad` / `TestRouterNoPollution` — YAML 容错、Pydantic 校验、深拷贝、reload 重建 router |
+| **L7** reasoning 回退 | `TestReasoningFallback` / `TestStreamErrorFormat` — content 空回退 `reasoning_content` |
+| **L8** SSE 语义 | `TestEventStream` — token/done/error 事件、双重编码消除、断开中断清理 |
+| **L9** 错误处理统一 | `TestGlobalExceptionHandler` — 未捕获异常脱敏、HTTPException 保留、BusinessError→400 |
+| **L10** async 阻塞 IO | novel/research/style/system 同步端点由既有 API 测试回归覆盖；`anyio.to_thread` 路径经 `generate` 流程测试验证 |
 
 ---
 
 ## 3. 关键覆盖提升
 
-| 模块 | 覆盖率 | 覆盖的提升点 |
-|------|-------|-------------|
-| `utils/url_utils.py` | 88% → **88%+（缺失分支全测）** | 整数 IP、DNS 解析、`https://` 无 host、回环 flag |
-| `utils/file_utils.py` | 46% → **~100%** | `resolve_within` 全部拒绝路径、symlink 逃逸、编码检测 |
-| `api/routes/models.py` | 97% → **99%** | ollama 探测 / 5xx / 3xx |
-| `tools/novel_storage.py` | 79% → **93%** | `_safe_novel_id`、索引管理、损坏数据、`_ensure_within`、自定义路径 S2 回归 |
-| `api/main.py` | 98%（不变） | 鉴权中间件直接单测（非回环 403 / 回环放行） |
+### P1 关键模块（本轮重点）
+
+| 模块 | 覆盖率 | 提升点 |
+|------|-------|-------|
+| `llm/local_client.py` | 83% → **100%** | 超时覆盖、错误分支、流式容错、close、探测成功路径 |
+| `llm/api_client.py` | 69% → **100%** | stop/头、流式容错、Anthropic 全链路、close |
+| `llm/router.py` | 86% → **100%** | provider 映射、目标选择、fallback 策略、close_all 异常吞除 |
+| `api/main.py` | 87% → **100%** | BusinessError、HTTPException、lifespan shutdown |
+| `core/config.py` | 90% → **98%** | 校验边界、OSError 回退、reload 两分支 |
 
 ### 全量覆盖率（模块一览）
 
 ```
-TOTAL          3667   1204    67%
+TOTAL          3849    991    74%
 ```
 
-主要未覆盖模块均为**计划中尚未实现**的 P1–P3 内容，属预期范围：
+主要未覆盖模块仍为 **计划中尚未实现** 的 P1 剩余项与 P2–P3 内容，属预期范围：
 - `cli.py` 0%（307 行，计划 E3.2 未实施）
 - `data_pipeline/fetcher.py`、`pipeline.py`、`catalog.py` 0%（计划 E3.4/L15 未实施）
 - `writer/engine.py` 0%（计划 E3.1 未实施）
-- `llm/local_client.py` 14%、`api_client.py` 30%（计划 L1/L2/E3.3 未实施）
+- `api/routes/generate.py`、`style.py`、`tools/web_search.py` 低覆盖（部分依赖 LLM/网络 mock，随 E3.3/E3.5 补齐）
 
 ---
 
-## 4. 已实现功能 → 测试覆盖对照
+## 4. 本轮修复的行为问题（顺带，非测试遗留）
 
-| plan.md 任务 | 实现状态 | 测试覆盖 |
-|-------------|---------|---------|
-| **S1** novel_id 路径穿越 | ✅ | `TestSafeNovelId` / `TestPathTraversal` / `TestSlug` — `../../`、`..`、`%2e%2e`、控制符全拒 |
-| **S2** save_path/output_dir/restore_path | ✅ | `test_file_utils.py` / `test_export_import.py` / `TestIndexManagement` — 越界/`..`/Windows 盘符全拒；NOVELS_ROOT 内的绝对自定义 `save_path` 恢复可用（本轮修复） |
-| **S3** 角色/设定/文风名称 | ✅ | `TestNameAsFilename` / `TestSlug` — `../../x`、`<>:"|?*` 不越界不崩溃 |
-| **S4** importer 书名 | ✅ | `test_data_pipeline.py` — `_safe_filename` / `_save_corpus` 越界拒绝 |
-| **S5** 鉴权 + CORS | ✅ | `test_auth.py` — 无 key 401、错误 key 401、正确 key 200、非回环 403、CORS 白名单 |
-| **S6** SSRF | ✅ | `test_url_utils.py` / `test_models.py` / `test_web_search.py` — 内网、`file://`、`169.254.169.254`、整数 IP 全拒 |
-| **S7** api_key 泄漏 | ✅ | `test_models.py` — 掩码、PATCH 持久化、`/api/system/paths` 不泄主机信息 |
+| 问题 | 修复 |
+|------|------|
+| P1 实现遗留 lint：`generate.py` 未用 `json`、`sse.py` 未用 `Union`/`e` | 清理 import 与未用变量 |
+| P1 实现遗留 type：`local_client._get_client(read_timeout: int)` 与 `request.timeout: float` 不兼容 | 签名放宽为 `float | None`，`_client_read_timeout` 同步放宽 |
+| `test_writer/test_sse.py` 误把 async 函数当生成器（coroutine never awaited 告警） | 改为真实 async 生成器 + 显式 `aclose()` 清理 |
 
 ---
 
-## 5. 本轮修复与行为备注
+## 5. 行为备注（非缺陷）
 
-### 5.1 修复的缺陷（根因 → 业务代码修复 → 回归测试）
-
-1. **S2 自定义保存路径回归（`save_path` 功能失效）**
-   - **根因**：`save_novel(novel, "/...")` 的自定义路径分支把以 `/` 开头的路径直接交给 `resolve_within(NOVELS_ROOT, ...)`，而 `resolve_within` 在入口处即拒绝**一切**绝对路径，导致即使位于 `NOVELS_ROOT` 之内的绝对自定义路径也被拒，该功能（docstring 承诺"视为自定义路径，但必须解析后仍在 NOVELS_ROOT 内"、API `save_path` 字段）完全不可用。
-   - **修复**：`resolve_within` 增加 `allow_absolute=False` 参数（默认行为不变，仍拒绝绝对路径，供 output_dir/restore_path 使用）；`save_novel` 自定义路径分支传 `allow_absolute=True`，安全门统一收敛为**越界即拒**——`/etc`、`/mnt/d/evil`、`D:\evil`、`/../../etc`、root 级 `/custom` 等全部仍然拒绝，只是放行位于 NOVELS_ROOT 内的绝对路径。
-   - **回归测试**：`TestPathTraversal::test_save_absolute_custom_path_within_root_works`、`test_save_custom_path_creates_index`（越界用例原样保留）。
-
-2. **`_safe_novel_id` 接受纯空白 id**
-   - **根因**：`if not novel_id:` 仅拦截空串，`"   "` 可通过，产生空白目录名，且与 docstring"拒绝空值"及 `resolve_within` 的空白拒绝语义不一致。
-   - **修复**：改为 `if not novel_id.strip():`。
-   - **回归测试**：`TestSafeNovelId::test_rejects_whitespace_only`（`"   "`、`"\t"`、`" \n "`）。
-
-3. **`list_novels` 失效索引未物理清理（plan.md C5.1）**
-   - **根因**：`list_novels` 扫描索引时对指向已删除目录的条目只 `log` 不清理，条目永久残留。
-   - **修复**：先收集失效条目再 `_index_unregister` 物理删除。
-   - **回归测试**：`TestIndexManagement::test_list_cleans_invalid_index_entries` 强化为断言条目已物理移除（`_index_get(...) is None`）。
-
-### 5.2 行为备注（非缺陷）
-
-- 探测端点 3xx/404 按"连接成功"处理，仅 5xx 记 error（保持现状，符合 S6 探测语义）。
+- 流式错误以 `LLMStreamError` 结构化抛出，由 SSE 层包装为 `event: error`；已实现调用方（generate/style 路由）在 `finally` 中 `aclose` 释放 httpx 流连接。
+- `reload_config()` 在运行中事件循环内调度 `close_router()` 关闭旧连接池；无事件循环时直接清空引用，连接池由进程退出回收。
+- P1 中尚未实现的任务（L11 输入校验、L12 章节完整性、L13 字数口径、L14 原子写、L15 管线健壮性、L16 性能、L17 杂项）对应的 `[ ]` 勾选维持不变，实现后补测。
 
 ---
 
 ## 6. 结论
 
-- P0 安全红线（S1–S7）已实现功能全部具备回归测试，关键安全函数覆盖从缺口补至 88%–100%。
-- 本轮修复 3 项此前被测试"如实反映"掩盖的业务缺陷（S2 自定义路径回归 / S1 空白 id / C5.1 索引清理），安全属性未削弱，越界/穿越用例全部原样保留。
-- 完整套件 **400 passed**，ruff/mypy 全绿。
-- 遗留低覆盖模块均为 plan.md 中尚未实施的 P1–P3 任务，待对应功能实现后补测。
+- P1 已实现功能（L1–L10）全部具备针对性回归测试，`llm` 层三个核心模块（local/api/router）与 `api/main.py` 覆盖补至 **100%**。
+- 完整套件 **490 passed**（+47），总覆盖率 **67% → 74%**；ruff / mypy 全绿（含修复 P1 实现遗留的 lint/type 问题）。
+- 遗留低覆盖模块均为 plan.md 中尚未实施的任务，待功能实现后按计划补测。

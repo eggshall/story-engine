@@ -162,10 +162,10 @@ async def import_json(req: ImportRequest) -> ApiResponse:
     """从 JSON 导入项目"""
     try:
         data: Dict[str, Any] = json.loads(req.json_data)
-    except json.JSONDecodeError as e:
+    except json.JSONDecodeError:
         return ApiResponse(
             success=False,
-            message=f"JSON 格式错误: {str(e)}",
+            message="JSON 格式错误，请检查内容",
         )
 
     title = data.get("title", "未命名")
@@ -184,10 +184,10 @@ async def import_json(req: ImportRequest) -> ApiResponse:
 
     try:
         novel = Novel(**data)
-    except Exception as e:
+    except Exception:
         return ApiResponse(
             success=False,
-            message=f"数据格式错误: {str(e)}",
+            message="数据格式错误：字段缺失或类型不正确",
         )
 
     try:

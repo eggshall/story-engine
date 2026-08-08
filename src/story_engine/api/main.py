@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import logging
 import secrets
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import AsyncIterator
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -36,10 +38,23 @@ logger.info("=" * 50)
 logger.info("故事引擎启动")
 logger.info("日志文件: %s", log_file)
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """应用生命周期：shutdown 时释放 LLM 连接池（见 L3）"""
+    yield
+    from story_engine.api.routes.generate import close_router
+    try:
+        await close_router()
+    except Exception:
+        logger.warning("关闭 LLM 连接池失败", exc_info=True)
+
+
 app = FastAPI(
     title="故事引擎 API",
     description="AI 小说生成系统 — Story Engine",
     version=__version__,
+    lifespan=lifespan,
 )
 
 # 鉴权中间件：配置了 security.api_key 时必须携带 X-API-Key；
@@ -101,3 +116,35 @@ async def root():
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "version": __version__}
+
+
+# ── 全局异常处理（L9）───────────────────────────────
+# 业务失败统一 HTTPException(4xx)；未捕获异常记日志 + 返回脱敏信息。
+
+
+class BusinessError(Exception):
+    """业务错误：message 会以 HTTPException(400) 返回。"""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+@app.exception_handler(BusinessError)
+async def business_error_handler(_: Request, exc: BusinessError):
+    logger.warning("业务错误: %s", exc.message)
+    return JSONResponse(status_code=400, content={"detail": exc.message})
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_: Request, exc: HTTPException):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_: Request, exc: Exception):
+    logger.exception("未捕获异常")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "服务器内部错误"},
+    )

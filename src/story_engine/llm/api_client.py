@@ -8,7 +8,7 @@ from typing import Any, AsyncGenerator, Dict, Optional
 
 import httpx
 
-from story_engine.llm.base import BaseLLM, LLMRequest, LLMResponse
+from story_engine.llm.base import BaseLLM, LLMRequest, LLMResponse, LLMStreamError
 
 
 class OpenAIClient(BaseLLM):
@@ -45,6 +45,16 @@ class OpenAIClient(BaseLLM):
             )
         return self._client
 
+    def _timeout(self, request: LLMRequest) -> httpx.Timeout:
+        """按请求级覆盖（或配置默认值）构建超时。"""
+        read = request.timeout or self.read_timeout
+        return httpx.Timeout(
+            connect=self.connect_timeout,
+            read=read,
+            write=self.connect_timeout,
+            pool=self.connect_timeout,
+        )
+
     async def chat(self, request: LLMRequest) -> LLMResponse:
         client = self._get_client()
         payload = {
@@ -57,10 +67,12 @@ class OpenAIClient(BaseLLM):
             payload["stop"] = request.stop
 
         try:
-            resp = await client.post("/chat/completions", json=payload)
+            resp = await client.post("/chat/completions", json=payload, timeout=self._timeout(request))
             resp.raise_for_status()
             data = resp.json()
-            content = data["choices"][0]["message"]["content"]
+            msg = data["choices"][0].get("message", {})
+            # 推理模型 content 可能为空/缺失，回退 reasoning_content
+            content = msg.get("content") or msg.get("reasoning_content", "") or ""
             usage = data.get("usage")
             return LLMResponse(
                 content=content,
@@ -88,7 +100,8 @@ class OpenAIClient(BaseLLM):
             "stream": True,
         }
         try:
-            async with client.stream("POST", "/chat/completions", json=payload) as resp:
+            async with client.stream("POST", "/chat/completions", json=payload,
+                                     timeout=self._timeout(request)) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if not line or line.startswith(":"):
@@ -106,7 +119,7 @@ class OpenAIClient(BaseLLM):
                         except json.JSONDecodeError:
                             continue
         except Exception as e:
-            yield f"\n[Error: {e}]"
+            raise LLMStreamError(str(e)) from e
 
     async def close(self) -> None:
         if self._client:
@@ -146,6 +159,16 @@ class AnthropicClient(BaseLLM):
             )
         return self._client
 
+    def _timeout(self, request: LLMRequest) -> httpx.Timeout:
+        """按请求级覆盖（或配置默认值）构建超时。"""
+        read = request.timeout or self.read_timeout
+        return httpx.Timeout(
+            connect=self.connect_timeout,
+            read=read,
+            write=self.connect_timeout,
+            pool=self.connect_timeout,
+        )
+
     async def chat(self, request: LLMRequest) -> LLMResponse:
         client = self._get_client()
         messages = request.messages
@@ -161,7 +184,7 @@ class AnthropicClient(BaseLLM):
             payload["system"] = system
 
         try:
-            resp = await client.post("/messages", json=payload)
+            resp = await client.post("/messages", json=payload, timeout=self._timeout(request))
             resp.raise_for_status()
             data = resp.json()
             content = "".join(
@@ -194,7 +217,8 @@ class AnthropicClient(BaseLLM):
             payload["system"] = system
 
         try:
-            async with client.stream("POST", "/messages", json=payload) as resp:
+            async with client.stream("POST", "/messages", json=payload,
+                                     timeout=self._timeout(request)) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if not line or not line.startswith("data: "):
@@ -212,7 +236,7 @@ class AnthropicClient(BaseLLM):
                     except json.JSONDecodeError:
                         continue
         except Exception as e:
-            yield f"\n[Error: {e}]"
+            raise LLMStreamError(str(e)) from e
 
     async def close(self) -> None:
         if self._client:

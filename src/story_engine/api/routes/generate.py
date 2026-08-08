@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import json
+import copy
 import logging
 import re
+import threading
 
+import anyio
 from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
 
@@ -23,29 +25,51 @@ logger = logging.getLogger("story_engine.api")
 
 router = APIRouter(prefix="/api/generate", tags=["generate"])
 
-# 全局 Router（懒加载）
+# 全局 Router（懒加载 + 锁 + reload 钩子）
 _router: ModelRouter | None = None
+_router_lock = threading.Lock()
 
 
 def _get_router() -> ModelRouter:
+    """懒加载全局 router，构建时深拷贝模型配置（杜绝污染共享配置，见 L6.2）。
+
+    ModelRouter 构造为纯同步操作，用 threading.Lock 串行化并发首次构建；
+    `reload_config()` 通过 `close_router()` 清空后自动重建。
+    """
     global _router
     if _router is None:
-        cfg = get_config()
-        models = list(cfg.get("llm.models", []) or [])
-        default_model = cfg.get("llm.default_model", "") or ""
-        # 全局超时（llm.connect_timeout / llm.read_timeout）作为各模型默认值下发，
-        # 模型级配置未显式声明超时时生效，避免配置文件与运行时行为不一致。
-        connect_timeout = cfg.get("llm.connect_timeout")
-        read_timeout = cfg.get("llm.read_timeout")
-        for m in models:
-            if not isinstance(m, dict):
-                continue
-            if connect_timeout is not None and "connect_timeout" not in m:
-                m["connect_timeout"] = connect_timeout
-            if read_timeout is not None and "read_timeout" not in m:
-                m["read_timeout"] = read_timeout
-        _router = ModelRouter(models, default_model=default_model)
+        with _router_lock:
+            if _router is None:
+                _router = _build_router_locked()
     return _router
+
+
+def _build_router_locked() -> ModelRouter:
+    """在锁内构建 router。"""
+    cfg = get_config()
+    models = copy.deepcopy(cfg.get("llm.models", []) or [])
+    default_model = cfg.get("llm.default_model", "") or ""
+    # 全局超时（llm.connect_timeout / llm.read_timeout）作为各模型默认值下发，
+    # 模型级配置未显式声明超时时生效，避免配置文件与运行时行为不一致。
+    connect_timeout = cfg.get("llm.connect_timeout")
+    read_timeout = cfg.get("llm.read_timeout")
+    for m in models:
+        if not isinstance(m, dict):
+            continue
+        if connect_timeout is not None and "connect_timeout" not in m:
+            m["connect_timeout"] = connect_timeout
+        if read_timeout is not None and "read_timeout" not in m:
+            m["read_timeout"] = read_timeout
+    return ModelRouter(models, default_model=default_model)
+
+
+async def close_router() -> None:
+    """关闭全局 router 并清空，供 lifespan shutdown / reload 使用。"""
+    global _router
+    router = _router
+    _router = None
+    if router is not None:
+        await router.close_all()
 
 
 def _load_novel(novel_id: str) -> Novel | None:
@@ -68,17 +92,18 @@ async def generate_outline(novel_id: str = "", chapter_number: int = 1,
 
     engine = WritingEngine(_get_router())
 
-    # 加载小说或创建临时
+    # 加载小说或创建临时（阻塞 IO 走线程池，见 L10）
     if novel_id:
-        novel = _load_novel(novel_id)
+        novel = await anyio.to_thread.run_sync(_load_novel, novel_id)
         if not novel:
             return ApiResponse(success=False, message=f"小说 '{novel_id}' 不存在")
     else:
         novel = Novel(title="未命名作品", synopsis="")
 
     # 加载已有角色
-    for name in list_cards():
-        card = load_card(name)
+    card_names = await anyio.to_thread.run_sync(list_cards)
+    for name in card_names:
+        card = await anyio.to_thread.run_sync(load_card, name)
         if card:
             novel.characters[name] = card
 
@@ -90,14 +115,12 @@ async def generate_outline(novel_id: str = "", chapter_number: int = 1,
 
 
 async def _stream_outline(engine, ch_num: int, title: str, model: str):
-    """流式生成大纲并拼接返回"""
-
-    # 先通过非流式生成大纲
+    """生成大纲并返回结构化对象（外层 event_stream 统一包装）"""
     outline = await engine.generate_outline(ch_num, title, model=model or None)
     if outline:
-        yield outline.model_dump_json(ensure_ascii=False)
+        yield outline.model_dump(exclude_none=True)
     else:
-        yield '{"error": "大纲生成失败"}'
+        yield {"error": "大纲生成失败"}
 
 
 @router.post("/chapter")
@@ -107,13 +130,14 @@ async def generate_chapter(novel_id: str = "", chapter_number: int = 1,
     from story_engine.writer.engine import WritingEngine
 
     engine = WritingEngine(_get_router())
-    novel = _load_novel(novel_id) if novel_id else Novel(title="未命名作品")
+    novel = await anyio.to_thread.run_sync(_load_novel, novel_id) if novel_id else Novel(title="未命名作品")
     if novel_id and not novel:
         return ApiResponse(success=False, message=f"小说 '{novel_id}' 不存在")
     assert novel is not None
 
-    for name in list_cards():
-        card = load_card(name)
+    card_names = await anyio.to_thread.run_sync(list_cards)
+    for name in card_names:
+        card = await anyio.to_thread.run_sync(load_card, name)
         if card:
             novel.characters[name] = card
 
@@ -131,7 +155,7 @@ async def _stream_chapter(engine, ch_num: int, title: str, model: str, novel: No
     # 1. 生成大纲
     outline = await engine.generate_outline(ch_num, title, model=model or None)
     if not outline:
-        yield '{"error": "大纲生成失败"}'
+        yield {"error": "大纲生成失败"}
         return
 
     # 2. 通过流式 API 生成内容
@@ -161,9 +185,15 @@ async def _stream_chapter(engine, ch_num: int, title: str, model: str, novel: No
 
     router = _get_router()
     full_content = ""
-    async for token in router.chat_stream(req, model_name=model or None):
-        full_content += token
-        yield f'{{"token": {json.dumps(token, ensure_ascii=False)}}}'
+    # 客户端断开时释放底层 httpx 流连接（见 L8.2）
+    gen = router.chat_stream(req, model_name=model or None)
+    try:
+        async for token in gen:
+            full_content += token
+            yield token  # 纯文本，由 event_stream 统一包装
+    finally:
+        if hasattr(gen, "aclose"):
+            await gen.aclose()
 
     # 3. 保存章节
     chapter = Chapter(
@@ -175,9 +205,9 @@ async def _stream_chapter(engine, ch_num: int, title: str, model: str, novel: No
         word_count=len(full_content),
     )
     novel_data.chapters.append(chapter)
-    _save_novel(novel_data, novel_id)
+    await anyio.to_thread.run_sync(_save_novel, novel_data, novel_id)
 
-    yield f'{{"done": true, "chapter": {chapter.model_dump_json(exclude_none=True)}}}'
+    yield {"done": True, "chapter": chapter.model_dump(exclude_none=True)}
 
 
 @router.post("/chat")
@@ -276,8 +306,13 @@ async def chat_completion(req: ChatRequest):
 
 async def _stream_chat(request: LLMRequest, model: str):
     router = _get_router()
-    async for token in router.chat_stream(request, model_name=model or None):
-        yield token
+    gen = router.chat_stream(request, model_name=model or None)
+    try:
+        async for token in gen:
+            yield token
+    finally:
+        if hasattr(gen, "aclose"):
+            await gen.aclose()
 
 
 @router.post("/depolish")
@@ -288,7 +323,7 @@ async def depolish_chapter(novel_id: str = "", chapter_number: int = 1,
     if not text:
         if not novel_id:
             return ApiResponse(success=False, message="缺少 novel_id 或 text")
-        novel = _load_novel(novel_id)
+        novel = await anyio.to_thread.run_sync(_load_novel, novel_id)
         if not novel:
             return ApiResponse(success=False, message=f"小说 '{novel_id}' 不存在")
         chapter = None
@@ -323,5 +358,10 @@ async def depolish_chapter(novel_id: str = "", chapter_number: int = 1,
 
 async def _stream_depolish(request: LLMRequest, model: str):
     router = _get_router()
-    async for token in router.chat_stream(request, model_name=model or None):
-        yield token
+    gen = router.chat_stream(request, model_name=model or None)
+    try:
+        async for token in gen:
+            yield token
+    finally:
+        if hasattr(gen, "aclose"):
+            await gen.aclose()

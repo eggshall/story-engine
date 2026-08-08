@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -42,8 +43,15 @@ def cli():
 
 
 def main():
-    """CLI 入口"""
-    cli()
+    """CLI 入口 — 退出前关闭 LLM 连接池（见 L3.2）"""
+    try:
+        cli()
+    finally:
+        try:
+            from story_engine.api.routes.generate import close_router
+            asyncio.run(close_router())
+        except Exception:
+            pass
 
 
 # ── 角色卡管理 ────────────────────────────────────────
