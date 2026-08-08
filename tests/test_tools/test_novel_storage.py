@@ -136,6 +136,26 @@ class TestPathTraversal:
         with pytest.raises(ValueError):
             save_novel(Novel(title="越界"), "/../../etc")
 
+    def test_save_absolute_custom_path_within_root_works(self, tmp_novels):
+        """绝对自定义路径若位于 NOVELS_ROOT 之内应可用（S2 回归）"""
+        from story_engine.tools.novel_storage import _slug
+        custom = tmp_novels / "武侠" / "金庸"
+        nid = save_novel(Novel(title="自定义合集"), str(custom))
+        assert (custom / _slug("自定义合集") / "novel.json").exists()
+        assert load_novel(nid) is not None
+
+    def test_save_custom_path_creates_index(self, tmp_novels):
+        """自定义路径保存应注册索引，之后按 id 仍可加载"""
+        from story_engine.tools.novel_storage import _index_get, _slug
+        custom = tmp_novels / "书架"
+        nid = save_novel(Novel(title="书架小说"), str(custom))
+        real_dir = (custom / _slug("书架小说")).resolve()
+        assert real_dir.exists()
+        assert _index_get(nid) == str(real_dir)
+        loaded = load_novel(nid)
+        assert loaded is not None
+        assert loaded.title == "书架小说"
+
     def test_save_plain_relative_id_still_works(self, tmp_novels):
         nid = save_novel(Novel(title="书架小说"), "书架")
         assert nid == "书架"
@@ -160,6 +180,13 @@ class TestSafeNovelId:
         "a\x00b", "a\nb", "a\rb", "控\x1f制",
     ])
     def test_rejects_dangerous(self, bad):
+        from story_engine.tools.novel_storage import _safe_novel_id
+        with pytest.raises(ValueError):
+            _safe_novel_id(bad)
+
+    @pytest.mark.parametrize("bad", ["   ", "\t", " \n "])
+    def test_rejects_whitespace_only(self, bad):
+        """纯空白 id 与「空值」同样拒绝，避免产生空白目录名"""
         from story_engine.tools.novel_storage import _safe_novel_id
         with pytest.raises(ValueError):
             _safe_novel_id(bad)
@@ -213,11 +240,16 @@ class TestIndexManagement:
         assert _read_index() == {}
 
     def test_list_cleans_invalid_index_entries(self, tmp_novels):
-        """索引指向已删除目录时不应出现在列表中（C5.1 待落地：仅跳过）"""
-        from story_engine.tools.novel_storage import _index_register, list_novels
+        """索引指向已删除目录时不应出现在列表中，且条目被物理清理（C5.1）"""
+        from story_engine.tools.novel_storage import (
+            _index_get,
+            _index_register,
+            list_novels,
+        )
         _index_register("ghost-novel", str(tmp_novels / "gone_dir"))
         novels = list_novels()
         assert all(n["id"] != "ghost-novel" for n in novels)
+        assert _index_get("ghost-novel") is None
 
     def test_save_absolute_custom_path_rejected(self, tmp_novels):
         """S2: 绝对路径自定义路径一律拒绝（save_novel 自定义路径已收紧）"""

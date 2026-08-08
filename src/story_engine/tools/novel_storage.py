@@ -62,7 +62,7 @@ def _safe_novel_id(novel_id: str) -> str:
     允许 unicode 字母数字及 `_`/`-`（兼容中文标题），拒绝路径分隔符、
     `..`、控制符、疑似 URL 编码（`%`）等危险值，非法时抛 ValueError。
     """
-    if not novel_id:
+    if not novel_id.strip():
         raise ValueError("novel_id 不能为空")
     if _UNSAFE_ID_RE.search(novel_id):
         raise ValueError(f"非法 novel_id: {novel_id!r}")
@@ -158,13 +158,17 @@ def list_novels() -> List[Dict[str, Any]]:
                     _add_novel(novels, seen, d.name, meta)
 
     # 2. 扫描索引中的自定义路径
+    stale: List[str] = []
     for nid, path in _read_index().items():
         meta = Path(path) / "novel.json"
         if meta.exists() and nid not in seen:
             _add_novel(novels, seen, nid, meta)
         elif not meta.exists():
-            # 索引指向的路径已不存在，清理
+            # 索引指向的路径已不存在，物理清理该条目
             logger.info("清理无效索引: %s → %s", nid, path)
+            stale.append(nid)
+    for nid in stale:
+        _index_unregister(nid)
 
     return sorted(novels, key=lambda x: x.get("updated", ""), reverse=True)
 
@@ -246,8 +250,8 @@ def save_novel(novel: Novel, novel_id: str = "") -> str:
         title_slug = _slug(novel.title)
 
         if novel_id.startswith("/"):
-            # 自定义保存路径必须位于 NOVELS_ROOT 之内（拒绝绝对路径/穿越）
-            custom_dir = resolve_within(NOVELS_ROOT, novel_id)
+            # 自定义保存路径：允许绝对路径，但解析后必须仍位于 NOVELS_ROOT 之内（拒绝越界/穿越）
+            custom_dir = resolve_within(NOVELS_ROOT, novel_id, allow_absolute=True)
             real_dir = custom_dir / title_slug
             real_dir.mkdir(parents=True, exist_ok=True)
             # ID = hash of real path
