@@ -1,7 +1,7 @@
 # 测试报告 — story-engine
 
 > 生成时间：2026-08-08
-> 覆盖范围：`docs/plan.md` Phase P1 已实现功能（L1–L10）补充/完善测试 + 完整套件回归（含此前 P0 S1–S7 全部测试）+ 修复 P1 实现遗留的 lint/type 问题
+> 覆盖范围：**Phase P2 工程健康（E1–E6）** 全部完成 + 完整套件回归（含此前 P0 S1–S7、P1 L1–L10 全部测试）+ P1 遗留的 lint/type 修复
 
 ---
 
@@ -9,100 +9,96 @@
 
 | 指标 | 结果 |
 |------|------|
-| **测试总数** | **490 passed**（此前 443） |
-| **本轮新增测试** | **+47 个**（净增 443 → 490） |
-| **总覆盖率** | **74%**（此前 67%，P1 关键模块补至 98%–100%） |
-| **静态检查** | ruff ✅ / mypy ✅（本轮顺带修复 P1 实现遗留的 5 处 lint + 2 处 type 问题） |
-| **耗时** | ~7s |
+| **测试总数** | **605 passed**（上一阶段 542） |
+| **本轮新增测试** | **+63 个**（净增 542 → 605） |
+| **总覆盖率** | **90.28%**（上一阶段 83%，全量 `--cov-fail-under=75` 门禁已启用） |
+| **静态检查** | ruff ✅ / mypy ✅ |
+| **警告** | 0（StarletteDeprecationWarning 已过滤） |
+| **耗时** | ~5s |
 
 ### 运行命令
 
 ```bash
-.venv/bin/python -m pytest -q          # 490 passed
+.venv/bin/python -m pytest -q          # 605 passed, 90.28% (门禁 75%)
 .venv/bin/python -m ruff check src tests # All checks passed!
 .venv/bin/python -m mypy src            # Success: no issues found
 ```
 
 ---
 
-## 2. 补充的测试（按 plan.md P1 已实现功能 L1–L10）
+## 2. Phase P2 完成内容（E1–E6 全勾）
 
-### 新增 / 扩展文件
+本轮按 `docs/plan.md` Phase P2 剩余项逐项落地，核心是可测试性 + 工程门禁：
 
-| 文件 | 对应任务 | 本轮补充内容 |
-|------|---------|-------------|
-| `tests/test_llm/test_local_client.py` | **L1 / L4 / L7 / L5** | 请求级超时覆盖 `_get_client`、探测成功路径（`<500` 判定 + 缓存）、预热成功置位 / `_warmed` 短路、预热失败、chat 未就绪 / 超时 / 泛异常结构化错误、流式未就绪抛 `LLMStreamError`、坏 JSON / 空行 / 注释行容错、流式异常转 `LLMStreamError`、`close()` 释放 client |
-| `tests/test_llm/test_api_client.py` | **L2 / L7 / L5** | stop 载荷、api_key 请求头、流式空行/坏 JSON 容错、流式异常转 `LLMStreamError`、泛异常掩码、`close()`；**Anthropic 全链路**：请求头（x-api-key / 版本 / 超时）、system_prompt、多段 text 拼接、chat/chat_stream 错误、流式 `content_block_delta` |
-| `tests/test_llm/test_router.py` | **L5 / L3** | `_pick_target` 默认模型 / 无默认取首个、`fallback=False` 直返失败、无模型错误信息、错误无 detail 兜底、流式"指定模型不在列表落默认"前缀、泛异常触发流式 fallback、全部泛异常聚合、无模型流式抛错、`close_all` 吞单 client 异常、provider→客户端映射、`list_models` |
-| `tests/test_llm/test_base.py` | **L3** | `close_all()` 幂等 / 空 router 安全 |
-| `tests/test_config_p1.py` | **L6** | `_validate_models` None/非列表/默认值填充、OSError 读取失败回退、`get` 中途非 dict 兜底、reload 无事件循环清空 router、运行中事件循环内调度 `close_router`、reload import 失败静默 |
-| `tests/test_error_handling.py` | **L9** | `BusinessError`→400、lifespan shutdown 调用 `close_router`、shutdown 异常被吞 |
-| `tests/test_writer/test_sse.py` | **L8** | 修复 `test_unknown_exception_masked` 的"coroutine was never awaited"告警（改真实生成器 + 显式 aclose） |
-| `tests/test_style.py` / `test_style_recommend.py` / `test_delete_flow.py` | **L10 / E2** | 隔离配置 fixture（不触发本地鉴权）、删除流程断言化 |
+### E2.3 测试隔离 — 联网用例 mock
+- **`tests/test_research.py`** 全面重写：`research.search_web` 替换为可控 `AsyncMock`（假 `SearchResponse`），**彻底移除真实网络依赖**，CI 幂等。
+- 断言细化为精确断言（不再依赖网络返回真值）：mock 参数透传、落盘文件校验、`save_to_lore` 的 `category` 记录、空结果不抛错。
+- 新增边界：损坏 JSON 文件跳过、`limit/offset` 分页、`limit>200` 返回 422。
 
-### 覆盖的 plan.md P1 任务对照
+### E3.4 数据管线核心流程（0% → ~95%）
+新增 `tests/test_data_pipeline_core.py`（32 用例，全部离线 mock，不触碰 `/mnt/d` 真实数据）：
 
-| plan.md 任务 | 测试覆盖 |
-|-------------|---------|
-| **L1** 本地超时配置失效 | `TestTimeout` — chat 走 300s、探测走 10s 临时 client、超时变化重建持久 client、请求级覆盖 |
-| **L2** 远程忽略注入超时 | `TestTimeoutInjection` / `TestAnthropic::test_chat_stream_content_block_delta` — chat/chat_stream 消费 `LLMRequest.timeout` |
-| **L3** 连接池泄漏 | `TestCloseAll`（router）/ `TestClose`（local）/ `TestStreamTolerance::test_close_releases_client` / `TestAnthropic::test_close_releases_client` / `TestLifespan`（lifespan shutdown） |
-| **L4** 健康探测缓存 + 锁 | `TestHealthCache` / `TestEnsureReady` — TTL 缓存、`asyncio.Lock` 串行化、`_warmed` 短路 |
-| **L5** fallback 诊断 | `TestChatFallback` / `TestChatStream` — 聚合错误、前缀标记规则、流式 fallback、`LLMStreamError` 结构化抛出 |
-| **L6** 配置校验 + 污染 | `TestConfigLoad` / `TestRouterNoPollution` — YAML 容错、Pydantic 校验、深拷贝、reload 重建 router |
-| **L7** reasoning 回退 | `TestReasoningFallback` / `TestStreamErrorFormat` — content 空回退 `reasoning_content` |
-| **L8** SSE 语义 | `TestEventStream` — token/done/error 事件、双重编码消除、断开中断清理 |
-| **L9** 错误处理统一 | `TestGlobalExceptionHandler` — 未捕获异常脱敏、HTTPException 保留、BusinessError→400 |
-| **L10** async 阻塞 IO | novel/research/style/system 同步端点由既有 API 测试回归覆盖；`anyio.to_thread` 路径经 `generate` 流程测试验证 |
+| 模块 | 覆盖 | 本轮覆盖点 |
+|------|------|-----------|
+| `fetcher.py` | 0% → **100%** | 下载/已存在短路/过小重下/HTTP 错误/批量单点失败 |
+| `importer.py` | 29% → **96%** | 书名清洗、GBK/UTF-8 解码、HTML→文本、epub 合集拆分（ncx 损坏兜底）、目录多分卷合并、扫描失败不中断、归档覆盖 |
+| `pipeline.py` | 0% → **99%** | `_genre_dir`、`collect_one`（下载→清洗→落盘→登记）、清洗为空抛错、`collect` 题材过滤与单本失败容错、`main` 四分支 |
+| `catalog.py` | 0% → **87%** | 抓取解析、保存/加载、不存在时抓取并落盘 |
+| `index.py` / `cleaner.py` | → 94% / 89% | 既有用例回归覆盖 |
+
+### E3.5 关键模块补测
+- **`api/sse.py`**：`event_stream()` 此前已 **100%**（token/done/error 事件、`LLMStreamError` 转 error、断开 aclose 清理）。
+- **`style/analyzer.py`**（62% → **95%**）：新增 `tests/test_style_analyzer.py`（21 用例）覆盖 `analyze_style`（JSON 成功/坏 JSON 兜底/长文本截断）、`check_consistency`（含无风格信息、features 兜底、坏响应兜底）、`generate_style_prompt`、`_chat`（think 块剥离、错误脱敏）、`_get_client`/`close`、`_extract_json`、`_features_to_prompt`、`render_style_block`。
+- **`api/routes/system.py`**（96% → **98%**）：补 Windows 用户探测 + E 盘挂载 → 桌面/文档/下载/D:/E: 建议分支、无用户时仅 D:/ 建议（monkeypatch 辅助函数，不依赖真实 `/mnt`）。
+
+### E3.6 遗留低覆盖点
+- **`llm/base.py`**（98% → **100%**）：`__repr__`、`close()` 抽象方法强制约束（未实现子类无法实例化）、实现可调用。
+- **`llm/router.py close_all()`**：已有幂等/空 router/异常吞除测试，**100%**。
+- **`style/recommend.get_genre_prototypes`**（84% → **97%**）：非空库返回题材→原型向量（13 维、0-1 归一化）、空库返回 `{}`。
+
+### E4 coverage 门禁
+- `pyproject.toml` 新增 `[tool.coverage.run]`（`source=["story_engine"]`）+ `[tool.coverage.report]`（`fail_under=75`）。
+- `[tool.pytest.ini_options] addopts = "--cov=story_engine --cov-report=term-missing --cov-fail-under=75"`：本地/CI 低于 75% 即失败。
+
+### E5 文档与版本同步
+- `README.md`：测试数（605/覆盖率 90%+）、项目结构补齐 `style`/`data_pipeline`/`tools`/`utils`、补 uvicorn 启动命令与安全提示。
+- `pyproject.toml` + `src/story_engine/__init__.py`：version `0.1.0` → **`0.8.0`**（与 CHANGELOG 对齐）。
+- `.gitignore`：补 `.mypy_cache/`、`.ruff_cache/`，删死条目 `src/frontend/dist/`。
+
+### E6.1 警告处理
+- starlette 1.3.x 在未安装 `httpx2` 时对 `starlette.testclient` 发出的 `StarletteDeprecationWarning`（httpx2 尚未发布，无法升级消除）→ pytest `filterwarnings` 定向过滤，测试输出 0 警告。
 
 ---
 
-## 3. 关键覆盖提升
-
-### P1 关键模块（本轮重点）
-
-| 模块 | 覆盖率 | 提升点 |
-|------|-------|-------|
-| `llm/local_client.py` | 83% → **100%** | 超时覆盖、错误分支、流式容错、close、探测成功路径 |
-| `llm/api_client.py` | 69% → **100%** | stop/头、流式容错、Anthropic 全链路、close |
-| `llm/router.py` | 86% → **100%** | provider 映射、目标选择、fallback 策略、close_all 异常吞除 |
-| `api/main.py` | 87% → **100%** | BusinessError、HTTPException、lifespan shutdown |
-| `core/config.py` | 90% → **98%** | 校验边界、OSError 回退、reload 两分支 |
-
-### 全量覆盖率（模块一览）
+## 3. 全量覆盖率（本轮回归）
 
 ```
-TOTAL          3849    991    74%
+TOTAL          3849    374    90%
 ```
 
-主要未覆盖模块仍为 **计划中尚未实现** 的 P1 剩余项与 P2–P3 内容，属预期范围：
-- `cli.py` 0%（307 行，计划 E3.2 未实施）
-- `data_pipeline/fetcher.py`、`pipeline.py`、`catalog.py` 0%（计划 E3.4/L15 未实施）
-- `writer/engine.py` 0%（计划 E3.1 未实施）
-- `api/routes/generate.py`、`style.py`、`tools/web_search.py` 低覆盖（部分依赖 LLM/网络 mock，随 E3.3/E3.5 补齐）
+关键模块（P2 重点补测）：
+
+| 模块 | 覆盖率 | 模块 | 覆盖率 |
+|------|-------|------|-------|
+| `data_pipeline/fetcher.py` | 100% | `style/analyzer.py` | 95% |
+| `data_pipeline/importer.py` | 96% | `style/recommend.py` | 97% |
+| `data_pipeline/pipeline.py` | 99% | `llm/base.py` | 100% |
+| `data_pipeline/catalog.py` | 87% | `llm/router.py` | 100% |
+| `api/sse.py` | 100% | `api/routes/system.py` | 98% |
+
+剩余低覆盖模块（`tools/web_search.py` 58%、`api/routes/generate.py` 52%、`style.py` 69%）依赖 LLM/真实搜索引擎，属 P2 范围之外，留待 P3 按计划补测或接线。
 
 ---
 
-## 4. 本轮修复的行为问题（顺带，非测试遗留）
+## 4. 静态检查与卫生
 
-| 问题 | 修复 |
-|------|------|
-| P1 实现遗留 lint：`generate.py` 未用 `json`、`sse.py` 未用 `Union`/`e` | 清理 import 与未用变量 |
-| P1 实现遗留 type：`local_client._get_client(read_timeout: int)` 与 `request.timeout: float` 不兼容 | 签名放宽为 `float | None`，`_client_read_timeout` 同步放宽 |
-| `test_writer/test_sse.py` 误把 async 函数当生成器（coroutine never awaited 告警） | 改为真实 async 生成器 + 显式 `aclose()` 清理 |
+- ruff ✅ / mypy ✅（本轮新增 5 处 import 排序/未用 import 由 `ruff --fix` 清理，0 残留）。
+- 测试输出 0 警告（E6.1 过滤后）。
 
 ---
 
-## 5. 行为备注（非缺陷）
+## 5. 结论
 
-- 流式错误以 `LLMStreamError` 结构化抛出，由 SSE 层包装为 `event: error`；已实现调用方（generate/style 路由）在 `finally` 中 `aclose` 释放 httpx 流连接。
-- `reload_config()` 在运行中事件循环内调度 `close_router()` 关闭旧连接池；无事件循环时直接清空引用，连接池由进程退出回收。
-- P1 中尚未实现的任务（L11 输入校验、L12 章节完整性、L13 字数口径、L14 原子写、L15 管线健壮性、L16 性能、L17 杂项）对应的 `[ ]` 勾选维持不变，实现后补测。
-
----
-
-## 6. 结论
-
-- P1 已实现功能（L1–L10）全部具备针对性回归测试，`llm` 层三个核心模块（local/api/router）与 `api/main.py` 覆盖补至 **100%**。
-- 完整套件 **490 passed**（+47），总覆盖率 **67% → 74%**；ruff / mypy 全绿（含修复 P1 实现遗留的 lint/type 问题）。
-- 遗留低覆盖模块均为 plan.md 中尚未实施的任务，待功能实现后按计划补测。
+- **P2（E1–E6）全部完成**：`data_pipeline` 从 0% 补至 ~95%、`style/analyzer` 62%→95%、`llm/base`/`recommend` 补满、research 测试彻底离线化；coverage 门禁（75%）、文档/版本/`.gitignore` 同步到位。
+- 完整套件 **605 passed（+63）**，总覆盖率 **83% → 90.28%**；ruff / mypy 全绿，0 警告。
+- 遗留低覆盖模块均为需要真实 LLM/网络或 P3 接线的内容，属计划内范围。

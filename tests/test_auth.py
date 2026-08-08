@@ -1,10 +1,6 @@
 """测试：API 鉴权中间件（X-API-Key / 本机回环）"""
 
-import tempfile
-from pathlib import Path
-
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
@@ -12,25 +8,17 @@ from story_engine.api.main import app
 client = TestClient(app)
 
 
-def _write_config(monkeypatch, data: dict) -> None:
-    tmp_cfg = Path(tempfile.mktemp(suffix=".yaml"))
-    with open(tmp_cfg, "w", encoding="utf-8") as f:
-        yaml.dump(data, f)
-    monkeypatch.setattr("story_engine.core.config._config_instance", None)
-    monkeypatch.setattr("story_engine.core.config.DEFAULT_CONFIG_PATH", tmp_cfg)
-
-
 @pytest.fixture
-def config_with_key(monkeypatch):
-    _write_config(monkeypatch, {
+def config_with_key(make_config):
+    make_config({
         "security": {"api_key": "test-secret-key"},
         "llm": {"default_model": "m", "models": []},
     })
 
 
 @pytest.fixture
-def config_no_key(monkeypatch):
-    _write_config(monkeypatch, {
+def config_no_key(make_config):
+    make_config({
         "llm": {"default_model": "m", "models": []},
     })
 

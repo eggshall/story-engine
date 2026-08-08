@@ -2,6 +2,8 @@
 
 AI 小说生成系统 — 远程 API (DeepSeek / Claude) + 本地模型 (Ollama) 混合架构。
 
+> 当前版本：0.8.0
+
 ## 快速开始
 
 ```bash
@@ -25,9 +27,14 @@ story info
 
 ```bash
 source .venv/bin/activate
+uvicorn story_engine.api.main:app --host 0.0.0.0 --port 8000
 ```
 
 访问 http://localhost:8000/docs 查看自动生成的 API 文档。
+
+> 安全提示：未在 `config.yaml` 配置 `security.api_key` 时，仅本机回环地址可访问 API；
+> 配置后需携带 `X-API-Key` 请求头。
+
 ## 项目结构
 
 ```
@@ -40,6 +47,10 @@ story-engine/
 │   ├── writer/                 # 写作引擎 (三种模式)
 │   ├── polish/                 # 精修系统 (去AI味/风格/节奏)
 │   ├── llm/                    # 模型层 (远程/本地路由)
+│   ├── style/                  # 文风分析/推荐/数据库
+│   ├── data_pipeline/          # 语料采集管线 (catalog/fetcher/cleaner/importer)
+│   ├── tools/                  # 工具层 (存储/搜索/固定任务)
+│   ├── utils/                  # 通用工具 (url/file)
 │   └── api/                    # FastAPI 后端 (REST + SSE 流式)
 │       ├── main.py             # 应用入口
 │       ├── schemas.py          # 请求/响应模型
@@ -49,7 +60,8 @@ story-engine/
 │           ├── novel.py        # 小说 CRUD
 │           ├── generate.py     # 生成 (大纲/章节/对话)
 │           ├── export.py       # MD 导出
-│           └── research.py     # 资料检索
+│           ├── research.py     # 资料检索
+│           └── system.py       # 系统信息/默认参数
 ├── config/config.yaml
 ├── data/
 │   ├── characters/             # 角色卡
@@ -57,7 +69,8 @@ story-engine/
 │   ├── novels/                 # 小说
 │   ├── research/               # 资料检索
 │   └── novels/exports/         # MD 导出
-├── tests/                      # 63 个单元测试
+├── tests/                      # 605 个测试（覆盖率 90%+）
+├── docs/                       # 计划与测试报告
 └── PLAN.md                     # 开发计划
 ```
 
@@ -82,7 +95,9 @@ story-engine/
 
 ```bash
 source .venv/bin/activate
-python -m pytest tests/ -v
+pytest -q              # 全量测试 + 覆盖率门禁（>=75%）
+ruff check src tests   # lint
+mypy src               # 类型检查
 ```
 
 ## 模型配置

@@ -2,8 +2,27 @@
 import asyncio
 from unittest.mock import AsyncMock
 
+import pytest
+
 from story_engine.llm.base import BaseLLM, LLMRequest, LLMResponse
 from story_engine.llm.router import ModelRouter
+
+
+class _MinimalClient(BaseLLM):
+    """最小可用实现（测试 format_messages/__repr__/close 约定用）。"""
+
+    def __init__(self, config=None):
+        super().__init__(config or {})
+        self._closed = False
+
+    async def chat(self, request):
+        return LLMResponse(content="ok")
+
+    async def chat_stream(self, request):
+        yield "ok"
+
+    async def close(self):
+        self._closed = True
 
 
 class TestLLMBase:
@@ -27,17 +46,36 @@ class TestLLMBase:
 
     def test_format_messages(self):
         """测试 system + user 消息拼接"""
-        class TestClient(BaseLLM):
-            async def chat(self, request): pass
-            async def chat_stream(self, request):
-                yield ""
-            async def close(self): pass
-
-        client = TestClient({"name": "test", "model_id": "m", "provider": "p"})
+        client = _MinimalClient({"name": "test", "model_id": "m", "provider": "p"})
         msgs = client.format_messages("系统提示", [{"role": "user", "content": "你好"}])
         assert len(msgs) == 2
         assert msgs[0]["role"] == "system"
         assert msgs[0]["content"] == "系统提示"
+
+    def test_repr(self):
+        client = _MinimalClient({"name": "测试模型", "model_id": "test-id", "provider": "openai"})
+        r = repr(client)
+        assert "测试模型" in r
+        assert "test-id" in r
+
+    def test_close_is_abstract(self):
+        """close() 为抽象方法：未实现子类无法实例化"""
+        class _NoClose(BaseLLM):
+            async def chat(self, request):
+                return LLMResponse()
+
+            async def chat_stream(self, request):
+                yield ""
+
+        with pytest.raises(TypeError):
+            _NoClose({})
+
+    def test_close_implemented_and_callable(self):
+        client = _MinimalClient({})
+        async def _run():
+            await client.close()
+        asyncio.run(_run())
+        assert client._closed is True
 
 
 class TestModelRouter:

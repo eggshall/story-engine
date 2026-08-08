@@ -11,26 +11,8 @@ from story_engine.api.main import app
 
 
 @pytest.fixture(autouse=True)
-def setup_test_env(monkeypatch):
-    """确保测试环境有最小配置"""
-    import yaml
-    tmp_cfg = Path(tempfile.mktemp(suffix=".yaml"))
-    config_data = {
-        "llm": {
-            "default_model": "test-model",
-            "models": [
-                {"name": "test-model", "provider": "openai",
-                 "model_id": "test", "base_url": "http://localhost:8080",
-                 "api_key": "test", "enabled": True},
-            ]
-        }
-    }
-    with open(tmp_cfg, "w") as f:
-        yaml.dump(config_data, f)
-
-    monkeypatch.setattr("story_engine.core.config._config_instance", None)
-    monkeypatch.setattr("story_engine.core.config.DEFAULT_CONFIG_PATH", tmp_cfg)
-    monkeypatch.setattr("story_engine.api.routes.generate._router", None)
+def setup_test_env(test_config, reset_router):
+    """确保测试环境有最小配置（统一 conftest fixture）"""
     yield
 
 
@@ -303,35 +285,53 @@ class TestConsistencyCheck:
 # ═══════════════════════════════════════════════════
 
 class TestDepolishAPI:
-    def test_depolish_endpoint_exists(self):
-        """POST /api/generate/depolish 路由存在（无 router 时 500 也 OK）"""
-        resp = client.post("/api/generate/depolish", json={
+    def test_depolish_endpoint_exists(self, monkeypatch):
+        """POST /api/generate/depolish 携带 text 应返回 SSE 流（200）"""
+        class FakeRouter:
+            async def chat_stream(self, request, model_name=None):
+                yield "去"
+                yield "AI"
+
+        monkeypatch.setattr(
+            "story_engine.api.routes.generate._get_router", lambda: FakeRouter()
+        )
+        resp = client.post("/api/generate/depolish", params={
             "chapter_number": 1,
             "text": "这是一段测试文本。需要去除AI生成的痕迹。",
         })
-        # 路由存在就返回 200/422/500，不返回 404
-        assert resp.status_code != 404
+        assert resp.status_code == 200
+        body = resp.text
+        assert "去" in body
+        assert "AI" in body
+        assert 'event: done' in body
 
     def test_depolish_with_novel_id(self, monkeypatch):
-        """带 novel_id 参数能正确路由"""
-        # 创建测试小说
+        """带 novel_id 参数应正确读取章节并返回 SSE 流"""
         novel_id = _create_test_novel(
             monkeypatch,
             title="去AI测试",
             content="测试内容。AI生成的文本往往带有明显的模板化痕迹。",
         )
-        resp = client.post("/api/generate/depolish", json={
+
+        class FakeRouter:
+            async def chat_stream(self, request, model_name=None):
+                yield "清理后"
+
+        monkeypatch.setattr(
+            "story_engine.api.routes.generate._get_router", lambda: FakeRouter()
+        )
+        resp = client.post("/api/generate/depolish", params={
             "novel_id": novel_id,
             "chapter_number": 1,
         })
-        assert resp.status_code != 404
+        assert resp.status_code == 200
+        assert "清理后" in resp.text
 
     def test_depolish_missing_text_and_novel(self):
         """没有 novel_id 也没有 text 时应返回明确错误"""
-        resp = client.post("/api/generate/depolish", json={
+        resp = client.post("/api/generate/depolish", params={
             "chapter_number": 1,
         })
-        # 应该返回 200 (ApiResponse) 或 422 (validation error)
-        assert resp.status_code in (200, 422)
-        if resp.status_code == 200:
-            assert not resp.json()["success"]
+        assert resp.status_code == 200
+        assert not resp.json()["success"]
+        assert "novel_id" in resp.json()["message"]

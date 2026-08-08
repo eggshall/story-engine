@@ -1,7 +1,7 @@
 # 体检 + 优化任务分解计划 (Health Check & Optimization Plan)
 
 > 状态：`docs/requirements.md` 不存在，本文基于对代码库的实际深度体检（ruff/mypy/246 tests 全绿 + 四路代码审查：LLM&core / API / pipeline&tools / tests&工程）推导的优化需求。
-> 当前基线：ruff ✅ / mypy ✅ / 246 passed。
+> 当前基线：ruff ✅ / mypy ✅ / **605 passed（覆盖率 90.28%）**，P0/P1/P2 已全部完成。
 
 ---
 
@@ -192,39 +192,39 @@
 
 ### E1. 建立 CI
 - **任务**：
-  - [ ] E1.1 新建 `.github/workflows/ci.yml`：`pip install -e .[dev]` → `ruff check` → `mypy src` → `pytest -q` → 上传 coverage
-  - [ ] E1.2 `ruff`、`mypy`、`pytest-cov`/`coverage` 写入 `pyproject.toml [dev]`
+  - [x] E1.1 新建 `.github/workflows/ci.yml`：`pip install -e .[dev]` → `ruff check` → `mypy src` → `pytest -q` → 上传 coverage
+  - [x] E1.2 `ruff`、`mypy`、`pytest-cov`/`coverage` 写入 `pyproject.toml [dev]`
 
 ### E2. 测试隔离与有效性
 - **任务**：
-  - [ ] E2.1 移除/重写 `tests/test_delete_flow.py`（伪测试，污染真实 `data/novels/`），改为 fixture 隔离
-  - [ ] E2.2 新增 `tests/conftest.py` 统一最小配置 fixture（tempfile config + monkeypatch），收敛 7+ 份重复复制
-  - [ ] E2.3 `tests/test_research.py` 联网用例改 mock，非幂等测试从 CI 剔除
-  - [ ] E2.4 清理弱断言：`test_analyze.py`（`in (200,422)`）、`test_writer/test_api.py`（`in (200,500)`）改为精确断言
+  - [x] E2.1 移除/重写 `tests/test_delete_flow.py`（伪测试，污染真实 `data/novels/`），改为 fixture 隔离
+  - [x] E2.2 新增 `tests/conftest.py` 统一最小配置 fixture（tempfile config + monkeypatch），收敛 7+ 份重复复制
+  - [x] E2.3 `tests/test_research.py` 联网用例改 mock（`research.search_web` 替换为可控假结果），非幂等测试从 CI 剔除
+  - [x] E2.4 清理弱断言：`test_analyze.py`（`in (200,422)`）、`test_writer/test_api.py`（`in (200,500)`）改为精确断言
 
 ### E3. 补核心链路测试（当前零/低覆盖）
 - **任务**：
-  - [ ] E3.1 `writer/engine.py`（277 行 0 覆盖）：三种写作模式
-  - [ ] E3.2 `cli.py`（307 行 0 覆盖）：各命令冒烟
-  - [ ] E3.3 `llm/local_client.py` + `api_client.py`（<25%）：chat/chat_stream/close/错误分支/超时
-  - [ ] E3.4 `data_pipeline/fetcher.py`/`importer.py`/`pipeline.py`/`catalog.py`（0 覆盖）：核心流程
-  - [ ] E3.5 `api/sse.py event_stream()`、`style/analyzer.py check_consistency`、`api/routes/system.py` 其余端点
-  - [ ] E3.6 `llm/base.py close()`、`router.close_all()`、`style/recommend.get_genre_prototypes`
+  - [x] E3.1 `writer/engine.py`（277 行 0 覆盖）：三种写作模式（大纲/写作/草稿 + 上下文 + 保存，100%）
+  - [x] E3.2 `cli.py`（307 行 0 覆盖）：各命令冒烟（角色/设定集/精修/配置/info/main，100%）
+  - [x] E3.3 `llm/local_client.py` + `api_client.py`（<25%）：chat/chat_stream/close/错误分支/超时（100%）
+  - [x] E3.4 `data_pipeline/fetcher.py`/`importer.py`/`pipeline.py`/`catalog.py`（0 覆盖）：核心流程（离线 mock，91%→95%）
+  - [x] E3.5 `api/sse.py event_stream()`（100%）、`style/analyzer.py`（analyze/check_consistency/prompt 生成）、`api/routes/system.py` 其余端点（Windows 用户/E 盘分支）
+  - [x] E3.6 `llm/base.py`（close 抽象约束 + `__repr__`）、`router.close_all()`（幂等/异常吞除）、`style/recommend.get_genre_prototypes`（含空库）
 
 ### E4. coverage 门禁
 - **任务**：
-  - [ ] E4.1 `pyproject.toml` 增加 `[tool.coverage.run]` + `[tool.coverage.report] fail_under` 阈值
-  - [ ] E4.2 `addopts = "--cov ... --cov-fail-under=..."`
+  - [x] E4.1 `pyproject.toml` 增加 `[tool.coverage.run]`（source）+ `[tool.coverage.report]`（`fail_under=75`）
+  - [x] E4.2 `addopts = "--cov=story_engine --cov-report=term-missing --cov-fail-under=75"`
 
 ### E5. 文档与版本同步
 - **任务**：
-  - [ ] E5.1 `README.md`：更新测试数（246）、项目结构（style/data_pipeline/tools/utils）、补 uvicorn 启动命令
-  - [ ] E5.2 `pyproject.toml` version 0.1.0 → 与 CHANGELOG 对齐（0.8.x）
-  - [ ] E5.3 `.gitignore`：补 `.mypy_cache/`、`.ruff_cache/`，删死条目 `src/frontend/dist/`
+  - [x] E5.1 `README.md`：更新测试数（605 + 覆盖率 90%+）、项目结构（style/data_pipeline/tools/utils）、补 uvicorn 启动命令
+  - [x] E5.2 `pyproject.toml`/`__init__.py` version 0.1.0 → 0.8.0（与 CHANGELOG 对齐）
+  - [x] E5.3 `.gitignore`：补 `.mypy_cache/`、`.ruff_cache/`，删死条目 `src/frontend/dist/`
 
 ### E6. 依赖与警告
 - **任务**：
-  - [ ] E6.1 处理 StarletteDeprecationWarning（httpx/starlette.testclient 兼容）
+  - [x] E6.1 处理 StarletteDeprecationWarning（httpx/starlette.testclient 兼容）：pytest `filterwarnings` 过滤该迁移提示（httpx2 未发布，无法升级消除）
 
 ---
 

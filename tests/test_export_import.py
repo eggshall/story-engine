@@ -1,21 +1,18 @@
 """测试：项目导出/导入 API"""
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
 
 
 @pytest.fixture(autouse=True)
-def setup_test_env(monkeypatch):
-    """建立测试环境：1 个小说 + 2 章节"""
-    tmp_cfg = Path(tempfile.mktemp(suffix=".yaml"))
-    config_data = {
+def setup_test_env(make_config, novels_root, reset_router):
+    """建立测试环境：1 个小说 + 2 章节（统一 conftest fixture）"""
+    make_config({
         "llm": {
             "default_model": "test-model",
             "models": [
@@ -24,21 +21,10 @@ def setup_test_env(monkeypatch):
                  "api_key": "test", "enabled": True},
             ]
         }
-    }
-    with open(tmp_cfg, "w", encoding="utf-8") as f:
-        yaml.dump(config_data, f)
-
-    monkeypatch.setattr("story_engine.core.config._config_instance", None)
-    monkeypatch.setattr("story_engine.core.config.DEFAULT_CONFIG_PATH", tmp_cfg)
+    })
 
     # 创建测试小说
-    import story_engine.api.routes.export as export_mod
     import story_engine.tools.novel_storage as ns
-    tmp_root = Path(tempfile.mktemp())
-    monkeypatch.setattr(ns, "NOVELS_ROOT", tmp_root)
-    monkeypatch.setattr(export_mod, "NOVELS_ROOT", tmp_root)
-    ns.NOVELS_ROOT.mkdir(parents=True, exist_ok=True)
-
     from story_engine.core.models import Chapter, Novel
 
     novel = Novel(
@@ -56,10 +42,7 @@ def setup_test_env(monkeypatch):
         updated="2026-06-24",
     )
     ns.save_novel(novel, novel_id="test-novel")
-
-    # 重设 API 路由中的全局 router
-    monkeypatch.setattr("story_engine.api.routes.generate._router", None)
-    yield ns.NOVELS_ROOT
+    yield novels_root
 
 
 client = TestClient(app)

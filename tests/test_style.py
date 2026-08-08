@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
@@ -18,13 +16,9 @@ from story_engine.style.db import FeatureKeys, StyleDb, StyleProfile
 
 
 @pytest.fixture(autouse=True)
-def _isolated_config(monkeypatch):
-    """隔离 API 配置：无 api_key 的空配置，避免本地 config.yaml 触发鉴权 401"""
-    tmp_cfg = Path(tempfile.mktemp(suffix=".yaml"))
-    with open(tmp_cfg, "w", encoding="utf-8") as f:
-        yaml.dump({"llm": {"default_model": "test-model", "models": []}}, f)
-    monkeypatch.setattr("story_engine.core.config._config_instance", None)
-    monkeypatch.setattr("story_engine.core.config.DEFAULT_CONFIG_PATH", tmp_cfg)
+def _isolated_config(make_config):
+    """隔离 API 配置：无 api_key 的空配置，避免本地 config.yaml 触发鉴权 401（统一 conftest fixture）"""
+    make_config({"llm": {"default_model": "test-model", "models": []}})
     yield
 
 @pytest.fixture

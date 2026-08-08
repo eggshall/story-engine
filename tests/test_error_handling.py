@@ -1,11 +1,8 @@
 """测试：P1 L9 统一错误处理 — 未捕获异常脱敏 / 业务错误 400 / lifespan 资源释放"""
 
-import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import BusinessError, app
@@ -14,13 +11,9 @@ client = TestClient(app, raise_server_exceptions=False)
 
 
 @pytest.fixture(autouse=True)
-def _isolated_config(monkeypatch):
-    """隔离 API 配置，避免本地 config.yaml 触发鉴权"""
-    tmp_cfg = Path(tempfile.mktemp(suffix=".yaml"))
-    with open(tmp_cfg, "w", encoding="utf-8") as f:
-        yaml.dump({"llm": {"default_model": "test-model", "models": []}}, f)
-    monkeypatch.setattr("story_engine.core.config._config_instance", None)
-    monkeypatch.setattr("story_engine.core.config.DEFAULT_CONFIG_PATH", tmp_cfg)
+def _isolated_config(make_config):
+    """隔离 API 配置，避免本地 config.yaml 触发鉴权（统一 conftest fixture）"""
+    make_config({"llm": {"default_model": "test-model", "models": []}})
     yield
 
 

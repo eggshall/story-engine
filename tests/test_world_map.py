@@ -1,10 +1,6 @@
 """测试：世界地图 API"""
 
-import tempfile
-from pathlib import Path
-
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
@@ -12,19 +8,11 @@ from story_engine.core.models import Novel
 
 
 @pytest.fixture(autouse=True)
-def setup_test_env(monkeypatch):
-    """建立测试环境：1 个小说 + 地图数据"""
-    tmp_cfg = Path(tempfile.mktemp(suffix=".yaml"))
-    config_data = {"llm": {"default_model": "test", "models": []}}
-    with open(tmp_cfg, "w", encoding="utf-8") as f:
-        yaml.dump(config_data, f)
-
-    monkeypatch.setattr("story_engine.core.config._config_instance", None)
-    monkeypatch.setattr("story_engine.core.config.DEFAULT_CONFIG_PATH", tmp_cfg)
+def setup_test_env(make_config, novels_root):
+    """建立测试环境：1 个小说 + 地图数据（统一 conftest fixture）"""
+    make_config({"llm": {"default_model": "test", "models": []}})
 
     import story_engine.tools.novel_storage as ns
-    monkeypatch.setattr(ns, "NOVELS_ROOT", Path(tempfile.mktemp()))
-    ns.NOVELS_ROOT.mkdir(parents=True, exist_ok=True)
 
     novel = Novel(title="测试地图小说", chapters=[])
     ns.save_novel(novel, novel_id="map-novel")

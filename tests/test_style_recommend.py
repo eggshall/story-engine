@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
@@ -15,13 +13,9 @@ from story_engine.style.recommend import recommend_profiles
 
 
 @pytest.fixture(autouse=True)
-def _isolated_config(monkeypatch):
-    """隔离 API 配置：无 api_key 的空配置，避免本地 config.yaml 触发鉴权 401"""
-    tmp_cfg = Path(tempfile.mktemp(suffix=".yaml"))
-    with open(tmp_cfg, "w", encoding="utf-8") as f:
-        yaml.dump({"llm": {"default_model": "test-model", "models": []}}, f)
-    monkeypatch.setattr("story_engine.core.config._config_instance", None)
-    monkeypatch.setattr("story_engine.core.config.DEFAULT_CONFIG_PATH", tmp_cfg)
+def _isolated_config(make_config):
+    """隔离 API 配置：无 api_key 的空配置，避免本地 config.yaml 触发鉴权 401（统一 conftest fixture）"""
+    make_config({"llm": {"default_model": "test-model", "models": []}})
     yield
 
 
@@ -120,6 +114,31 @@ class TestRecommend:
         StyleDb()  # 初始化空库
         results = recommend_profiles("武侠", top_k=5)
         assert results == []
+
+    def test_get_genre_prototypes(self, db_with_recommend_data):
+        """get_genre_prototypes 返回题材→原型向量映射"""
+        from story_engine.style.recommend import get_genre_prototypes
+
+        protos = get_genre_prototypes()
+        assert "武侠" in protos
+        assert "科幻" in protos
+        # 向量长度 = 特征键数，且已归一化到 0-1
+        for genre, vec in protos.items():
+            assert len(vec) == 13
+            assert all(0.0 <= v <= 1.0 for v in vec)
+
+    def test_get_genre_prototypes_empty_db(self, tmp_path: Path):
+        """空库时返回空 dict"""
+        import story_engine.style.db as db_module
+        from story_engine.style.recommend import get_genre_prototypes
+
+        if hasattr(db_module._log, "conn") and db_module._log.conn is not None:
+            db_module._log.conn.close()
+        db_module._log.conn = None
+        db_module.STYLE_DB_DIR = tmp_path / "style_profiles_empty2"
+        db_module.STYLE_DB_PATH = db_module.STYLE_DB_DIR / "style_profiles.db"
+        StyleDb()
+        assert get_genre_prototypes() == {}
 
 
 # ── API 测试 ────────────────────────────────────────────

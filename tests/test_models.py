@@ -1,11 +1,8 @@
 """测试：模型管理 API"""
 
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
@@ -13,10 +10,9 @@ from story_engine.core.config import get_config
 
 
 @pytest.fixture(autouse=True)
-def setup_test_env(monkeypatch):
-    """建立测试配置：3 个模型（含禁用 + 含 api_key）"""
-    tmp_cfg = Path(tempfile.mktemp(suffix=".yaml"))
-    config_data = {
+def setup_test_env(make_config):
+    """建立测试配置：3 个模型（含禁用 + 含 api_key）（统一 conftest fixture）"""
+    make_config({
         "llm": {
             "default_model": "pro-model",
             "models": [
@@ -53,12 +49,7 @@ def setup_test_env(monkeypatch):
                 },
             ]
         }
-    }
-    with open(tmp_cfg, "w", encoding="utf-8") as f:
-        yaml.dump(config_data, f)
-
-    monkeypatch.setattr("story_engine.core.config._config_instance", None)
-    monkeypatch.setattr("story_engine.core.config.DEFAULT_CONFIG_PATH", tmp_cfg)
+    })
     yield
 
 

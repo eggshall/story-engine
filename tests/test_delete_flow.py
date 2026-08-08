@@ -1,10 +1,6 @@
 """测试：API 删除全流程（fixture 隔离，不污染真实数据目录）"""
 
-import tempfile
-from pathlib import Path
-
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
@@ -13,24 +9,9 @@ client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def setup_test_env(monkeypatch):
-    """建立隔离的测试配置与小说存储目录"""
-    tmp_cfg = Path(tempfile.mktemp(suffix=".yaml"))
-    config_data = {
-        "llm": {"default_model": "test-model", "models": []},
-    }
-    with open(tmp_cfg, "w", encoding="utf-8") as f:
-        yaml.dump(config_data, f)
-
-    monkeypatch.setattr("story_engine.core.config._config_instance", None)
-    monkeypatch.setattr("story_engine.core.config.DEFAULT_CONFIG_PATH", tmp_cfg)
-
-    import story_engine.tools.novel_storage as ns
-    tmp_root = Path(tempfile.mktemp())
-    monkeypatch.setattr(ns, "NOVELS_ROOT", tmp_root)
-    ns.NOVELS_ROOT.mkdir(parents=True, exist_ok=True)
-
-    yield ns.NOVELS_ROOT
+def setup_test_env(test_config, novels_root):
+    """建立隔离的测试配置与小说存储目录（统一 conftest fixture）"""
+    yield novels_root
 
 
 class TestDeleteFlow:

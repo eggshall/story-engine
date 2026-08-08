@@ -9,28 +9,8 @@ from story_engine.api.main import app
 
 
 @pytest.fixture(autouse=True)
-def setup_test_env(monkeypatch):
-    """确保测试环境有最小配置"""
-    import yaml
-    tmp_cfg = Path(tempfile.mktemp(suffix=".yaml"))
-    config_data = {
-        "llm": {
-            "default_model": "test-model",
-            "models": [
-                {"name": "test-model", "provider": "openai",
-                 "model_id": "test", "base_url": "http://localhost:8080",
-                 "api_key": "test", "enabled": True},
-            ]
-        }
-    }
-    with open(tmp_cfg, "w") as f:
-        yaml.dump(config_data, f)
-
-    # 重设配置
-    monkeypatch.setattr("story_engine.core.config._config_instance", None)
-    monkeypatch.setattr("story_engine.core.config.DEFAULT_CONFIG_PATH", tmp_cfg)
-    # 重设 API 路由中的全局 router
-    monkeypatch.setattr("story_engine.api.routes.generate._router", None)
+def setup_test_env(test_config, reset_router):
+    """确保测试环境有最小配置（统一 conftest fixture）"""
     yield
 
 
@@ -238,23 +218,45 @@ class TestUserProfileAPI:
 class TestChatAPI:
     def test_chat_with_mode(self, monkeypatch):
         """验证 mode/search 参数能正常传递到后端"""
+        from story_engine.llm.base import LLMResponse
+
+        class FakeRouter:
+            async def chat(self, request, model_name=None):
+                return LLMResponse(content="ok", model="test-model")
+
+        monkeypatch.setattr(
+            "story_engine.api.routes.generate._get_router", lambda: FakeRouter()
+        )
+
         resp = client.post("/api/generate/chat", json={
             "messages": [{"role": "user", "content": "你好"}],
             "mode": "chat",
             "search": False,
             "stream": False,
         })
-        # 无 router 时会 500，只验证路由可达
-        assert resp.status_code in (200, 500)
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+        assert resp.json()["data"]["content"] == "ok"
 
-    def test_chat_with_write_mode(self):
+    def test_chat_with_write_mode(self, monkeypatch):
         """验证写作模式参数"""
+        from story_engine.llm.base import LLMResponse
+
+        class FakeRouter:
+            async def chat(self, request, model_name=None):
+                return LLMResponse(content="开篇", model="test-model")
+
+        monkeypatch.setattr(
+            "story_engine.api.routes.generate._get_router", lambda: FakeRouter()
+        )
+
         resp = client.post("/api/generate/chat", json={
             "messages": [{"role": "user", "content": "写个开头"}],
             "mode": "write",
             "stream": False,
         })
-        assert resp.status_code in (200, 500)
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
 
     def test_chat_with_style_prompt(self, monkeypatch):
         """P5: style_prompt 非空时注入 system prompt"""

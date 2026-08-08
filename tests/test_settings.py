@@ -1,20 +1,16 @@
 """测试：系统设置 API（默认写作参数）"""
 
-import tempfile
-from pathlib import Path
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
 
 
 @pytest.fixture(autouse=True)
-def setup_test_env(monkeypatch):
-    """建立测试配置"""
-    tmp_cfg = Path(tempfile.mktemp(suffix=".yaml"))
-    config_data = {
+def setup_test_env(make_config, reset_router):
+    """建立测试配置（统一 conftest fixture）"""
+    make_config({
         "llm": {
             "default_model": "deepseek-v4-pro",
             "models": [
@@ -26,13 +22,7 @@ def setup_test_env(monkeypatch):
             "temperature": 0.7,
             "max_tokens": 4096,
         },
-    }
-    with open(tmp_cfg, "w", encoding="utf-8") as f:
-        yaml.dump(config_data, f)
-
-    monkeypatch.setattr("story_engine.core.config._config_instance", None)
-    monkeypatch.setattr("story_engine.core.config.DEFAULT_CONFIG_PATH", tmp_cfg)
-    monkeypatch.setattr("story_engine.api.routes.generate._router", None)
+    })
     yield
 
 
@@ -59,9 +49,10 @@ class TestGetSettings:
         assert isinstance(settings["max_tokens"], int)
         assert isinstance(settings["default_model"], str)
 
-    def test_returns_defaults_when_config_missing(self, monkeypatch):
+    def test_returns_defaults_when_config_missing(self, monkeypatch, tmp_path):
         """配置中没有 writing 段时返回合理默认值"""
-        tmp_cfg = Path(tempfile.mktemp(suffix=".yaml"))
+        import yaml
+        tmp_cfg = tmp_path / "config-writer.yaml"
         with open(tmp_cfg, "w", encoding="utf-8") as f:
             yaml.dump({"llm": {"default_model": "test"}}, f)
         monkeypatch.setattr("story_engine.core.config._config_instance", None)
@@ -87,6 +78,44 @@ class TestSystemPaths:
         assert "windows_user" not in data
         assert "mounts" not in data
         assert "home" not in data
+
+    def test_with_windows_user_and_e_drive(self, monkeypatch):
+        """探测到 Windows 用户 + E 盘挂载时给出对应建议（不依赖真实 /mnt）"""
+        import story_engine.api.routes.system as system_mod
+
+        monkeypatch.setattr(system_mod, "_detect_windows_user", lambda: "Alice")
+        monkeypatch.setattr(
+            system_mod,
+            "_list_mounts",
+            lambda: [{"drive": "E", "path": "/mnt/e"}],
+        )
+
+        resp = client.get("/api/system/paths")
+        assert resp.status_code == 200
+        suggested = resp.json()["data"]["suggested"]
+        labels = [s["label"] for s in suggested]
+        assert any("桌面" in label for label in labels)
+        assert any("文档" in label for label in labels)
+        assert any("下载" in label for label in labels)
+        assert any("D:" in label for label in labels)  # 始终包含
+        assert any("E:" in label for label in labels)  # 有挂载才出现
+        # 建议路径内可含 Windows 用户名（路径建议的一部分），但响应体不单独暴露用户名字段
+        desktop = next(s for s in suggested if "桌面" in s["label"])
+        assert "/mnt/c/Users/Alice/Desktop" in desktop["path"]
+        assert "windows_user" not in resp.json()["data"]
+        assert "mounts" not in resp.json()["data"]
+
+    def test_without_windows_user_no_desktop(self, monkeypatch):
+        """无 Windows 用户时只给 D:/ 建议"""
+        import story_engine.api.routes.system as system_mod
+
+        monkeypatch.setattr(system_mod, "_detect_windows_user", lambda: "")
+        monkeypatch.setattr(system_mod, "_list_mounts", lambda: [])
+
+        resp = client.get("/api/system/paths")
+        suggested = resp.json()["data"]["suggested"]
+        labels = [s["label"] for s in suggested]
+        assert labels == ["D: 盘根目录"]
 
 
 class TestUpdateSettings:
