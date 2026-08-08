@@ -237,8 +237,8 @@ story-engine/
 - [x] P1 正确性/健壮性 (L1-L9): 超时配置失效、close_all 连接泄漏、fallback 吞诊断、SSE 双重编码、async 阻塞 IO、竞态锁、reasoning_content 回退
 - [x] P2 工程健康 (E1-E6): GitHub Actions CI、伪测试隔离、conftest fixture、弱断言清理、覆盖率门禁 75%、README/版本 0.8.0
 - [x] P3 清理重构 (C1-C5): 死代码删除、双 StyleProfile 统一、数据管线原子写/编码校验/损坏容错 (L15)
-- [x] 测试: 246 → 617 passed, 覆盖率 67% → 92.57%, ruff/mypy 全绿
-- [ ] 剩余低优 (未做): L16.1 fixed_tasks 性能优化、L17 Windows 盘符路径/DATA_ROOT 环境变量注入
+- [x] 测试: 246 → 622 passed, 覆盖率 67% → 92.62%, ruff/mypy 全绿
+- [x] 剩余项完成: L16.1 fixed_tasks 性能优化、L17 Windows 盘符路径/DATA_ROOT 环境变量注入 (docs/plan.md 93 项全部勾选)
 - [x] 后端 API 鉴权: security.api_key (X-API-Key), CORS 白名单 localhost:5173
 
 | 当前项目状态 (更新于 2026-06-19)
