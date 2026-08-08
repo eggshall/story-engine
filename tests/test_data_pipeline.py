@@ -1,9 +1,6 @@
 """P6 数据管线测试: cleaner / importer / index / catalog 解析。"""
-import json
 import sys
 from pathlib import Path
-
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -11,11 +8,9 @@ from story_engine.data_pipeline import cleaner  # noqa: E402
 from story_engine.data_pipeline.cleaner import (  # noqa: E402
     clean_text,
     normalize_whitespace,
-    strip_gutenberg_header_footer,
     to_paragraphs,
 )
-from story_engine.data_pipeline.index import add_record, load_index, save_index  # noqa: E402
-
+from story_engine.data_pipeline.index import add_record, load_index  # noqa: E402
 
 # ── cleaner ──────────────────────────────────────────────
 

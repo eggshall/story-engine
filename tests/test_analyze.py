@@ -1,7 +1,6 @@
 """测试：分析 API 端点 — 风格分析 + 一致性检查"""
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 
@@ -9,7 +8,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
-from story_engine.core.config import get_config
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +43,6 @@ client = TestClient(app)
 
 def _create_test_novel(monkeypatch, title: str = "分析测试", content: str = "") -> str:
     """创建测试小说并返回 novel_id"""
-    from story_engine.core.models import Novel, Chapter
 
     tmp = Path(tempfile.mkdtemp())
     monkeypatch.setattr("story_engine.tools.novel_storage.NOVELS_ROOT", tmp)
@@ -173,7 +170,7 @@ class TestConsistencyCheck:
 
         # 需要先有角色才能检查一致性
         # 通过更新小说来添加角色
-        from story_engine.core.models import Novel, CharacterCard
+        from story_engine.core.models import CharacterCard
         from story_engine.tools.novel_storage import load_novel, save_novel
 
         novel = load_novel(novel_id)
@@ -296,7 +293,7 @@ class TestConsistencyCheck:
         # So this won't match either. Let me use different text.
         # Actually the check_consistency function inserts "了" inside the name.
         # For "张三丰", parts = ['张','三','丰'], i=1: alt = "张" + "了" + "三丰" = "张了三丰"
-        # "张了丰" doesn't match... 
+        # "张了丰" doesn't match...
         # Let me just check that the endpoint returns a valid structure.
         # The detection test is more of a unit test concern for fixed_tasks.py.
 

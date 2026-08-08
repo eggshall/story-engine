@@ -4,15 +4,15 @@
 存入 SQLite 数据库，供前端选择文风并注入生成。
 """
 
-from story_engine.style.db import get_db, StyleDb, StyleProfile
 from story_engine.style.analyzer import StyleAnalyzer
+from story_engine.style.db import StyleDb, StyleProfile, get_db
 from story_engine.style.schemas import (
-    StyleFeatureSet,
-    StyleFeatureRequest,
     StyleConsistencyRequest,
     StyleConsistencyResult,
-    StyleProfileResponse,
+    StyleFeatureRequest,
+    StyleFeatureSet,
     StyleListResponse,
+    StyleProfileResponse,
 )
 
 __all__ = [

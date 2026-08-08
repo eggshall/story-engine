@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 from story_engine.tools.memory_models import (
-    SoulMemory,
     CharacterMemory,
-    PlotMemory,
-    WritingStyleMemory,
-    UserProfile,
+    SoulMemory,
     StyleProfile,
+    UserProfile,
     WritingSample,
 )
 
@@ -68,7 +66,6 @@ class TestSoulMemory:
         assert mem.style.pov == "第三人称"
 
     def test_updated_timestamp(self):
-        import datetime
         mem = SoulMemory(novel_id="id", novel_title="T")
         before = mem.updated
         mem.update_plot(chapter_summary="更新")

@@ -17,7 +17,7 @@ from story_engine.characters.manager import (
     search_cards,
 )
 from story_engine.core.config import config_dir, data_dir, get_config
-from story_engine.core.models import CharacterCard, Novel
+from story_engine.core.models import CharacterCard
 from story_engine.lore.lorebook import (
     build_lore_context,
     create_example_lorebook,
@@ -27,13 +27,10 @@ from story_engine.lore.lorebook import (
     save_lorebook,
 )
 from story_engine.polish import (
+    DeAIFilter,
     analyze_rhythm,
-    check_continuity,
-    check_style_consistency,
     detect_narrative_style,
 )
-from story_engine.polish import DeAIFilter
-
 
 # ── 全局选项 ──────────────────────────────────────────
 
@@ -156,9 +153,9 @@ def cmd_list_lore():
         click.echo(f"  • {name}")
 
 
-@lore.command()
+@lore.command(name="show")
 @click.argument("name")
-def show(name: str):
+def cmd_show_lore(name: str):
     """查看设定集详情"""
     book = load_lorebook(name)
     if not book:
@@ -172,9 +169,9 @@ def show(name: str):
         click.echo(f"  [{status}] {eid}: {'|'.join(entry.keys)} (P{entry.priority})")
 
 
-@lore.command()
+@lore.command(name="delete")
 @click.argument("name")
-def delete(name: str):
+def cmd_delete_lore(name: str):
     """删除设定集"""
     if delete_lorebook(name):
         click.echo(f"已删除设定集：{name}")
@@ -193,8 +190,8 @@ def match(text: str):
         click.echo("未匹配到任何设定")
 
 
-@lore.command()
-def example():
+@lore.command(name="example")
+def cmd_example_lore():
     """创建示例设定集"""
     book = create_example_lorebook()
     ok = save_lorebook(book, overwrite=True)

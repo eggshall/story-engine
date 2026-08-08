@@ -7,8 +7,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 from fastapi import APIRouter, HTTPException
 
+from story_engine.api.schemas import ApiResponse, ModelConfigRequest
 from story_engine.core.config import get_config
-from story_engine.api.schemas import ApiResponse, ModelConfigRequest, ModelInfo
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 

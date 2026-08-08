@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 from story_engine.tools.fixed_tasks import (
-    extract_keywords,
-    summarize_chapter,
     check_consistency,
     compress_history,
+    extract_keywords,
+    summarize_chapter,
 )
 
 
@@ -21,7 +21,6 @@ class TestExtractKeywords:
     def test_named_entities(self):
         text = "张掌门走上了天山派的大殿。林将军率领三千兵马。"
         kw = extract_keywords(text)
-        words = [k["word"] for k in kw]
         # 至少应该提取出高频词
         assert len(kw) >= 0
 

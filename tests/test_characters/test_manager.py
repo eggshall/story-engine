@@ -1,12 +1,16 @@
 """测试：角色卡管理器"""
-import os
 import tempfile
 from pathlib import Path
 
 import pytest
 
 from story_engine.characters.manager import (
-    list_cards, load_card, save_card, delete_card, search_cards, create_example_card,
+    create_example_card,
+    delete_card,
+    list_cards,
+    load_card,
+    save_card,
+    search_cards,
 )
 from story_engine.core.models import CharacterCard
 

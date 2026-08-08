@@ -5,11 +5,10 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 import yaml
+from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
-from story_engine.core.config import get_config
 
 
 @pytest.fixture(autouse=True)
@@ -37,7 +36,7 @@ def setup_test_env(monkeypatch):
     monkeypatch.setattr(ns, "NOVELS_ROOT", Path(tempfile.mktemp()))
     ns.NOVELS_ROOT.mkdir(parents=True, exist_ok=True)
 
-    from story_engine.core.models import Novel, Chapter
+    from story_engine.core.models import Chapter, Novel
 
     novel = Novel(
         title="测试小说标题",

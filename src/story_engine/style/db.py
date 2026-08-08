@@ -13,7 +13,6 @@ import json
 import sqlite3
 import threading
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Dict, List, Optional
 
 from story_engine.core.config import data_dir
@@ -183,7 +182,8 @@ class StyleDb:
         """保存文风画像（插入或更新）"""
         conn = _get_conn()
         if not profile.id:
-            import hashlib, time
+            import hashlib
+            import time
             raw = f"{profile.name}_{time.time()}"
             profile.id = hashlib.md5(raw.encode()).hexdigest()[:12]
 

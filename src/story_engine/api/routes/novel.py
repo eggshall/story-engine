@@ -1,34 +1,32 @@
 """小说管理路由 — 独立目录存储 + 灵魂记忆 + 文风分析"""
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import List
-
 from fastapi import APIRouter, HTTPException
 
 from story_engine.api.schemas import (
     ApiResponse,
-    NovelBrief,
     NovelCreateRequest,
     NovelDetail,
 )
 from story_engine.core.models import Novel
+from story_engine.tools.fixed_tasks import check_consistency
 from story_engine.tools.novel_storage import (
     delete_novel,
     list_novels,
+    list_style_profiles,
     load_novel,
     load_soul_memory,
+    load_user_profile,
     save_novel,
     save_soul_memory,
-    list_style_profiles,
     save_style_profile,
-    load_user_profile,
     save_user_profile,
 )
-from story_engine.tools.style_analyzer import build_style_profile, extract_techniques, analyze_text_style
-from story_engine.tools.fixed_tasks import check_consistency
-from story_engine.tools.memory_models import SoulMemory, StyleProfile
+from story_engine.tools.style_analyzer import (
+    analyze_text_style,
+    build_style_profile,
+    extract_techniques,
+)
 
 router = APIRouter(prefix="/api/novel", tags=["novel"])
 
@@ -78,7 +76,7 @@ async def api_create_novel(req: NovelCreateRequest) -> ApiResponse:
     )
     # 支持自定义保存路径
     custom_path = req.save_path.strip() if req.save_path else ""
-    novel_id = save_novel(novel, custom_path or None)
+    novel_id = save_novel(novel, custom_path)
 
     # 返回完整详情
     detail = NovelDetail(
@@ -383,7 +381,7 @@ async def api_get_map(novel_id: str) -> ApiResponse:
 @router.post("/{novel_id}/map")
 async def api_save_map(novel_id: str, body: dict) -> ApiResponse:
     """保存小说地图数据"""
-    from story_engine.tools.novel_storage import save_map_data, load_map_data
+    from story_engine.tools.novel_storage import load_map_data, save_map_data
     novel = load_novel(novel_id)
     if not novel:
         raise HTTPException(status_code=404, detail=f"小说 '{novel_id}' 不存在")

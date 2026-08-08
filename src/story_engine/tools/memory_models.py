@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
-
 
 # ═══════════════════════════════════════════════
 # 灵魂记忆 (Soul Memory) — 每部小说独立
@@ -68,7 +67,7 @@ class SoulMemory(BaseModel):
         self.characters[name].voice = voice_desc
         self.updated = datetime.now().isoformat()
 
-    def update_plot(self, chapter_summary: str = "", threads: List[str] = None) -> None:
+    def update_plot(self, chapter_summary: str = "", threads: Optional[List[str]] = None) -> None:
         """更新剧情记忆"""
         if chapter_summary:
             self.plot.last_chapter_summary = chapter_summary
@@ -88,22 +87,22 @@ class UserProfile(BaseModel):
     default_writing_mode: str = "balance"   # 细腻/简洁/平衡
     default_model_for_write: str = ""
     default_model_for_chat: str = ""
-    
+
     # 写作习惯
     common_genres: List[str] = Field(default_factory=list)
     typical_word_count_per_chapter: int = 2000
     preferred_pov: str = ""
     preferred_tense: str = ""  # 过去/现在
-    
+
     # 个人化词汇
     favorite_openings: List[str] = Field(default_factory=list)
     pet_phrases: List[str] = Field(default_factory=list, description="个人常用语")
     avoid_phrases: List[str] = Field(default_factory=list, description="讨厌的用词")
-    
+
     # 自定义
     personal_system_prompt: str = Field(default="", description="全局自定义提示词补充")
     notes: str = Field(default="")
-    
+
     updated: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
@@ -123,25 +122,25 @@ class StyleProfile(BaseModel):
     """从外部资料分析的文风画像"""
     novel_id: str = Field(description="关联小说")
     name: str = Field(description="文风档案名称")
-    
+
     # 定量指标
     avg_sentence_length: float = 0.0
     dialogue_percentage: float = 0.0
     description_percentage: float = 0.0
     action_percentage: float = 0.0
     psychological_percentage: float = 0.0
-    
+
     # 词汇层面
     top_adjectives: List[str] = Field(default_factory=list)
     top_verbs: List[str] = Field(default_factory=list)
     common_phrases: List[str] = Field(default_factory=list)
     distinctive_words: List[str] = Field(default_factory=list, description="区分度高的词")
-    
+
     # 风格描述
     style_summary: str = Field(default="", description="LLM 生成的风格总结")
     writing_techniques: List[str] = Field(default_factory=list, description="识别到的技法")
     suitable_for: List[str] = Field(default_factory=list, description="适合的题材")
-    
+
     # 样本
     samples: List[WritingSample] = Field(default_factory=list)
     created: str = Field(default_factory=lambda: datetime.now().isoformat())

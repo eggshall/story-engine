@@ -1,9 +1,12 @@
 """测试：核心数据模型"""
-import pytest
 from story_engine.core.models import (
-    CharacterCard, Relationship, LoreEntry, CharacterLoreBook,
-    LoreBook, LorebookEntry, ChapterOutline, Chapter, Novel,
-    LLMConfig, ModelConfig,
+    Chapter,
+    ChapterOutline,
+    CharacterCard,
+    LoreBook,
+    LorebookEntry,
+    Novel,
+    Relationship,
 )
 
 

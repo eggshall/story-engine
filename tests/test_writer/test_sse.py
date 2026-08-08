@@ -1,5 +1,4 @@
 """测试：SSE 工具"""
-import pytest
 
 from story_engine.api.sse import format_sse, format_sse_done, format_sse_error
 

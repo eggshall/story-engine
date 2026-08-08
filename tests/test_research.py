@@ -8,7 +8,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
-from story_engine.core.config import get_config
 
 
 @pytest.fixture(autouse=True)

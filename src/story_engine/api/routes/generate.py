@@ -5,20 +5,19 @@ from __future__ import annotations
 import json
 import logging
 import re
-from pathlib import Path
 
 from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
 
 from story_engine.api.schemas import ApiResponse, ChatRequest
 from story_engine.api.sse import event_stream
-from story_engine.characters.manager import load_card, list_cards
-from story_engine.core.config import data_dir, get_config
+from story_engine.characters.manager import list_cards, load_card
+from story_engine.core.config import get_config
 from story_engine.core.models import Novel
 from story_engine.llm.base import LLMRequest
 from story_engine.llm.router import ModelRouter
 from story_engine.tools.prompts import get_system_prompt
-from story_engine.tools.web_search import search_web, format_search_context
+from story_engine.tools.web_search import format_search_context, search_web
 
 logger = logging.getLogger("story_engine.api")
 
@@ -32,8 +31,19 @@ def _get_router() -> ModelRouter:
     global _router
     if _router is None:
         cfg = get_config()
-        models = cfg.get("llm.models", [])
+        models = list(cfg.get("llm.models", []) or [])
         default_model = cfg.get("llm.default_model", "") or ""
+        # 全局超时（llm.connect_timeout / llm.read_timeout）作为各模型默认值下发，
+        # 模型级配置未显式声明超时时生效，避免配置文件与运行时行为不一致。
+        connect_timeout = cfg.get("llm.connect_timeout")
+        read_timeout = cfg.get("llm.read_timeout")
+        for m in models:
+            if not isinstance(m, dict):
+                continue
+            if connect_timeout is not None and "connect_timeout" not in m:
+                m["connect_timeout"] = connect_timeout
+            if read_timeout is not None and "read_timeout" not in m:
+                m["read_timeout"] = read_timeout
         _router = ModelRouter(models, default_model=default_model)
     return _router
 
@@ -81,7 +91,6 @@ async def generate_outline(novel_id: str = "", chapter_number: int = 1,
 
 async def _stream_outline(engine, ch_num: int, title: str, model: str):
     """流式生成大纲并拼接返回"""
-    from story_engine.llm.base import LLMRequest
 
     # 先通过非流式生成大纲
     outline = await engine.generate_outline(ch_num, title, model=model or None)
@@ -101,6 +110,7 @@ async def generate_chapter(novel_id: str = "", chapter_number: int = 1,
     novel = _load_novel(novel_id) if novel_id else Novel(title="未命名作品")
     if novel_id and not novel:
         return ApiResponse(success=False, message=f"小说 '{novel_id}' 不存在")
+    assert novel is not None
 
     for name in list_cards():
         card = load_card(name)
@@ -116,8 +126,7 @@ async def generate_chapter(novel_id: str = "", chapter_number: int = 1,
 
 async def _stream_chapter(engine, ch_num: int, title: str, model: str, novel: Novel, novel_id: str = ""):
     """先生成大纲，再流式生成章节"""
-    from story_engine.writer.engine import WritingEngine
-    from story_engine.core.models import ChapterOutline, Chapter
+    from story_engine.core.models import Chapter
 
     # 1. 生成大纲
     outline = await engine.generate_outline(ch_num, title, model=model or None)

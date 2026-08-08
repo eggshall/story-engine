@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -42,7 +42,7 @@ def download_ebook(eid: str, raw_dir: Optional[Path] = None) -> Path:
 
 def download_many(eids, raw_dir: Optional[Path] = None) -> dict:
     """批量下载，返回 {eid: 成功与否}。单个失败不中断。"""
-    results = {}
+    results: dict[str, Any] = {}
     for eid in eids:
         try:
             p = download_ebook(str(eid), raw_dir)

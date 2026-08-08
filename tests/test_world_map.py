@@ -1,15 +1,14 @@
 """测试：世界地图 API"""
 
-import json
 import tempfile
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 import yaml
+from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
-from story_engine.core.models import Novel, Chapter
+from story_engine.core.models import Novel
 
 
 @pytest.fixture(autouse=True)

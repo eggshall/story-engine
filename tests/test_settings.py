@@ -4,8 +4,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 import yaml
+from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
 

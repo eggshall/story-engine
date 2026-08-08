@@ -50,6 +50,10 @@ class BaseLLM(ABC):
         if False:  # pragma: no cover
             yield ""
 
+    async def close(self) -> None:
+        """释放底层资源（默认为空操作，子类按需覆写）"""
+        return None
+
     def format_messages(self, system_prompt: str, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """将 system_prompt + 消息列表拼接为标准 messages 格式"""
         result: List[Dict[str, str]] = []

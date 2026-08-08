@@ -1,10 +1,8 @@
 """固定流程工具集 — 关键词提取 / 章节摘要 / 一致性检查"""
 from __future__ import annotations
 
-import json
 import re
 from typing import Any, Dict, List, Optional
-
 
 # ── 关键词提取 ────────────────────────────────
 
@@ -86,7 +84,7 @@ def summarize_chapter(content: str, max_chars: int = 200) -> str:
 def check_consistency(
     new_text: str,
     known_names: List[str],
-    known_places: List[str] = None,
+    known_places: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """检查新文本中已知角色/地名是否保持一致
 

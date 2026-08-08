@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 from story_engine.tools.memory_models import StyleProfile, WritingSample
 
@@ -34,12 +34,7 @@ def analyze_text_style(
     total_chars = len(clean)
     dialogue_pct = dialogue_chars / total_chars if total_chars else 0
 
-    # 描述 vs 动作 vs 心理
-    desc_chars = 0
-    action_indicator = 0
-    # 近似的判定: 含有 "了" "着" "过" "把" 等动作标记的句子 = 动作
-    # 含有 "想" "觉得" "感到" "知道" = 心理
-    psych_chars = 0
+    # 心理描写（"想/觉得/感到/知道" 等标记）
     psych_words = re.findall(r'[。！？]([^。！？]*(?:想|觉得|感到|知道|认为|明白|理解|猜测)[^。！？]*[。！？])', clean)
     psych_chars = sum(len(p) for p in psych_words)
 

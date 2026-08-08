@@ -6,7 +6,6 @@ import logging
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
 
 from story_engine.style import StyleAnalyzer, StyleDb, StyleProfile
 from story_engine.style.schemas import (
@@ -17,8 +16,8 @@ from story_engine.style.schemas import (
     StyleGenerateRequest,
     StyleListResponse,
     StyleProfileResponse,
-    StyleRecommendResponse,
     StyleRecommendItem,
+    StyleRecommendResponse,
     StyleSaveRequest,
 )
 
@@ -164,7 +163,7 @@ async def check_consistency(req: StyleConsistencyRequest):
         style_prompt = profile.style_prompt or ""
 
     if not style_prompt and profile:
-        style_prompt = analyzer._features_to_prompt(profile.features)  # noqa
+        style_prompt = StyleAnalyzer._features_to_prompt(profile.features)
 
     if not style_prompt:
         raise HTTPException(status_code=400, detail="需要提供 profile_id 或 style_prompt")
@@ -194,8 +193,8 @@ async def generate_with_style(req: StyleGenerateRequest):
     """带文风的小说内容生成（SSE 流式）"""
     from sse_starlette.sse import EventSourceResponse
 
-    from story_engine.api.schemas import ChatRequest
     from story_engine.api.routes.generate import _get_router
+    from story_engine.api.schemas import ChatRequest
     from story_engine.api.sse import event_stream
 
     # 加载文风画像

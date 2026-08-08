@@ -1,9 +1,8 @@
 """系统信息路由 — 路径探测、环境信息、默认参数设置"""
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 from fastapi import APIRouter
 

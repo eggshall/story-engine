@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -13,19 +12,18 @@ from fastapi.testclient import TestClient
 from story_engine.api.main import app
 from story_engine.style.db import FeatureKeys, StyleDb, StyleProfile
 
-
 # ── Fixtures ────────────────────────────────────────────
 
 @pytest.fixture
 def db_with_data(tmp_path: Path) -> StyleDb:
     """带测试数据的文风数据库"""
     import story_engine.style.db as db_module
-    
+
     # 清空线程本地连接缓存，确保使用临时路径
     if hasattr(db_module._log, "conn") and db_module._log.conn is not None:
         db_module._log.conn.close()
     db_module._log.conn = None
-    
+
     db_module.STYLE_DB_DIR = tmp_path / "style_profiles"
     db_module.STYLE_DB_PATH = db_module.STYLE_DB_DIR / "style_profiles.db"
 
@@ -97,7 +95,6 @@ class TestStyleDb:
         db_module._log.conn = None
         db_module.STYLE_DB_DIR = tmp_path / "style_profiles"
         db_module.STYLE_DB_PATH = db_module.STYLE_DB_DIR / "style_profiles.db"
-        db = StyleDb()
 
         # 手动创建连接（会创建目录和表）
         conn = db_module._get_conn()
@@ -110,7 +107,6 @@ class TestStyleDb:
 
     def test_save_and_get_profile(self, db_with_data: StyleDb):
         """保存和读取文风画像"""
-        profile = db_with_data.get_profile("金庸武侠风")
         # 我们的 save_profile 用 md5 生成 id，所以不能用 name 直接查
         # 改用列表查
         all_profiles = db_with_data.list_profiles()
@@ -198,8 +194,9 @@ class TestStyleDb:
 class TestStyleAnalyzer:
     def test_analyze_style_with_mock(self):
         """mock 本地模型的分析结果"""
-        from story_engine.style.analyzer import StyleAnalyzer
         import asyncio
+
+        from story_engine.style.analyzer import StyleAnalyzer
 
         async def _test():
             analyzer = StyleAnalyzer()

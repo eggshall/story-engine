@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import re
-from collections import Counter
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 from story_engine.core.models import Chapter
-
 
 # ==========================================================
 # 去AI味 — 去除 AI 写作的常见套话
@@ -208,7 +206,7 @@ def analyze_rhythm(text: str) -> Dict:
         "suspense_count": suspense_count,
         "paragraph_count": len(paragraphs),
         "avg_paragraph_length": round(avg_para_len, 0),
-        "long_paragraphs": sum(1 for l in para_lens if l > 300),  # 超过300字的段落
+        "long_paragraphs": sum(1 for plen in para_lens if plen > 300),  # 超过300字的段落
         "rating": _rate_rhythm(hook_count, len(text)),
     }
 

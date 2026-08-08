@@ -1,13 +1,13 @@
 """测试：文风分析器 — 风格定量分析"""
 from __future__ import annotations
 
+from story_engine.tools.memory_models import StyleProfile
 from story_engine.tools.style_analyzer import (
     analyze_text_style,
     build_style_profile,
-    extract_techniques,
     compare_with_profile,
+    extract_techniques,
 )
-from story_engine.tools.memory_models import StyleProfile
 
 
 class TestAnalyzeTextStyle:

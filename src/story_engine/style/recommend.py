@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Tuple
 
 from story_engine.style.db import StyleDb, StyleProfile
 
-
 # 参与相似度计算的特征键（排除纯描述性/文本特征）
 _SCORE_KEYS: Tuple[str, ...] = (
     "词汇水平",

@@ -1,5 +1,4 @@
 """测试：API 路由"""
-import json
 import tempfile
 from pathlib import Path
 
@@ -7,7 +6,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
-from story_engine.core.config import get_config
 
 
 @pytest.fixture(autouse=True)
@@ -342,7 +340,7 @@ class TestExportAPI:
         monkeypatch.setattr(storage_mod, "NOVELS_ROOT", tmp)
 
         # 创建测试小说（使用新目录结构）
-        from story_engine.core.models import Novel, Chapter
+        from story_engine.core.models import Chapter, Novel
         novel = Novel(title="导出测试")
         novel.chapters.append(Chapter(chapter_number=1, title="第一章", content="内容"))
         nid = storage_mod.save_novel(novel)

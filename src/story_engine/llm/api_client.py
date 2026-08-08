@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, Optional
 
 import httpx
 
@@ -182,22 +182,21 @@ class AnthropicClient(BaseLLM):
         try:
             async with client.stream("POST", "/messages", json=payload) as resp:
                 resp.raise_for_status()
-                async with resp:
-                    async for line in resp.aiter_lines():
-                        if not line or not line.startswith("data: "):
-                            continue
-                        data_str = line[6:].strip()
-                        if data_str == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data_str)
-                            if chunk.get("type") == "content_block_delta":
-                                delta = chunk.get("delta", {})
-                                text = delta.get("text", "")
-                                if text:
-                                    yield text
-                        except json.JSONDecodeError:
-                            continue
+                async for line in resp.aiter_lines():
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[6:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        if chunk.get("type") == "content_block_delta":
+                            delta = chunk.get("delta", {})
+                            text = delta.get("text", "")
+                            if text:
+                                yield text
+                    except json.JSONDecodeError:
+                        continue
         except Exception as e:
             yield f"\n[Error: {e}]"
 

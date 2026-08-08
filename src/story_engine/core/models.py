@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-
 # ==========================================================
 # 角色卡系统 — 兼容 Character Card V2 规范
 # ==========================================================
@@ -74,7 +73,7 @@ class CharacterCard(BaseModel):
         if self.scenario:
             lines.append(f"【场景】{self.scenario}")
         if self.style_examples:
-            lines.append(f"【风格示例】\n" + "\n---\n".join(self.style_examples))
+            lines.append("【风格示例】\n" + "\n---\n".join(self.style_examples))
         if self.relationships:
             rel_lines = [f"  - {r.relation}：{r.target}（{r.description}）" for r in self.relationships]
             lines.append("【关系】\n" + "\n".join(rel_lines))

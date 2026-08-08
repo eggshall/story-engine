@@ -191,16 +191,16 @@ def scan_imports(genre: str = "other", author: str = "") -> List[Dict[str, Any]]
         if item.name.startswith(".") or item.name == "done":
             continue
         try:
+            recs: List[Dict[str, Any]] = []
             if item.is_dir():
                 recs = import_dir(item, genre=genre, author=author)
             elif item.suffix.lower() in _SUFFIXES:
-                recs = [import_file(item, genre=genre, author=author)]
-            else:
-                recs = []
-            for rec in recs:
+                rec = import_file(item, genre=genre, author=author)
                 if rec:
-                    imported.append(rec)
-                    print(f"  ✅ 导入: {rec['title']} ({rec['chars']}字)")
+                    recs = [rec]
+            for rec in recs:
+                imported.append(rec)
+                print(f"  ✅ 导入: {rec['title']} ({rec['chars']}字)")
         except Exception as exc:  # noqa: BLE001
             print(f"  ❌ 导入失败 {item.name}: {exc.__class__.__name__}: {exc}")
     return imported

@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from story_engine import __version__
-from story_engine.api.routes import models, novel, generate, export, research, system, style
+from story_engine.api.routes import export, generate, models, novel, research, style, system
 
 # ── 日志配置 ────────────────────────────────
 

@@ -60,7 +60,7 @@ class Config:
     def get(self, key: str, default: Any = None) -> Any:
         """点号分隔的键值访问，如 config.get('llm.deepseek.api_key')"""
         parts = key.split(".")
-        value = self._data
+        value: Any = self._data
         for part in parts:
             if isinstance(value, dict):
                 value = value.get(part)

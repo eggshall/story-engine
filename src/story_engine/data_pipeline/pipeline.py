@@ -13,16 +13,15 @@
 from __future__ import annotations
 
 import argparse
-import sys
 import time
 from pathlib import Path
 from typing import Dict, List
 
-from .catalog import fetch_catalog, save_catalog
 from .cleaner import clean_text, to_paragraphs
-from .config import CORPUS_DIR, GENRES, RAW_DIR, ensure_dirs
+from .config import CORPUS_DIR, GENRES, ensure_dirs
 from .fetcher import download_ebook
-from .index import add_record, load_index, stats as index_stats
+from .index import add_record
+from .index import stats as index_stats
 
 # ── 题材精选书单（Gutenberg 中文公版，ID 已对照书目确认）──────────────
 # 格式: {genre: [(eid, 标题, 作者, 备注), ...]}

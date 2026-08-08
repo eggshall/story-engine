@@ -1,27 +1,25 @@
 """测试：小说存储引擎 — 独立目录 CRUD"""
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from story_engine.core.models import Novel, Chapter
-from story_engine.tools.novel_storage import (
-    NOVELS_ROOT,
-    list_novels,
-    load_novel,
-    save_novel,
-    delete_novel,
-    load_soul_memory,
-    save_soul_memory,
-    load_user_profile,
-    save_user_profile,
-    list_style_profiles,
-    save_style_profile,
-)
+from story_engine.core.models import Chapter, Novel
 from story_engine.tools.memory_models import SoulMemory, StyleProfile
+from story_engine.tools.novel_storage import (
+    delete_novel,
+    list_novels,
+    list_style_profiles,
+    load_novel,
+    load_soul_memory,
+    load_user_profile,
+    save_novel,
+    save_soul_memory,
+    save_style_profile,
+    save_user_profile,
+)
 
 
 @pytest.fixture

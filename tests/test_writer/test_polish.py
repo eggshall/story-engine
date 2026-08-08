@@ -1,9 +1,12 @@
 """测试：精修系统"""
-from story_engine.polish import (
-    DeAIFilter, detect_narrative_style, analyze_rhythm,
-    check_style_consistency, check_continuity,
-)
 from story_engine.core.models import Chapter
+from story_engine.polish import (
+    DeAIFilter,
+    analyze_rhythm,
+    check_continuity,
+    check_style_consistency,
+    detect_narrative_style,
+)
 
 
 class TestDeAIFilter:

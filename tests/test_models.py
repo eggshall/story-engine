@@ -1,13 +1,12 @@
 """测试：模型管理 API"""
 
-import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
-from fastapi.testclient import TestClient
 import yaml
+from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
 from story_engine.core.config import get_config

@@ -1,12 +1,9 @@
 """测试：API 删除全流程"""
-import asyncio, tempfile
-from pathlib import Path
+import asyncio
+
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
-from story_engine.tools.novel_storage import NOVELS_ROOT
-from story_engine.api.routes.novel import router as novel_router
-from story_engine.api.routes.export import router as export_router
 
 client = TestClient(app)
 

@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from story_engine.core.config import data_dir
 from story_engine.core.models import LoreBook, LorebookEntry
-
 
 LOREB_DIR = data_dir() / "lore"
 

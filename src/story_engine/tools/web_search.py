@@ -19,7 +19,6 @@ from urllib.parse import quote_plus
 
 import httpx
 
-
 logger = logging.getLogger("story_engine.search")
 
 
@@ -330,9 +329,9 @@ async def fetch_page_content(url: str, max_chars: int = 2000) -> str:
     text = re.sub(r'<[^>]+>', '\n', html)
     text = _clean_html(text)
     # 清理空行和空白
-    lines = [l.strip() for l in text.split('\n') if l.strip()]
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
     # 过滤过短的行（导航/按钮文字）
-    lines = [l for l in lines if len(l) > 15]
+    lines = [line for line in lines if len(line) > 15]
     content = '\n'.join(lines)
 
     # 截取
@@ -398,11 +397,11 @@ _vpn_cache: tuple[bool, float] | None = None  # (result, timestamp)
 
 async def _is_vpn_active() -> bool:
     """检测 VPN/代理是否开启
-    
+
     检测顺序：
     1. WSL 内本地 127.0.0.1:7890（原生 Linux 代理）
     2. Windows 宿主机网关 IP:7890（Clash 在 Windows 上运行）
-    
+
     结果缓存 60 秒。
     """
     global _vpn_cache
@@ -582,7 +581,7 @@ def format_search_context(response: SearchResponse) -> str:
     if not response.results:
         return ""
     parts = [
-        f"[联网搜索结果]",
+        "[联网搜索结果]",
         f"用户查询: {response.query}\n",
         response.summary,
     ]

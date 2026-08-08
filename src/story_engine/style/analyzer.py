@@ -8,15 +8,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 
-from story_engine.style.db import FeatureKeys, StyleProfile
+from story_engine.style.db import StyleProfile
 
 logger = logging.getLogger("story_engine.style")
 
@@ -46,7 +45,7 @@ class StyleAnalyzer:
     async def _chat(self, messages: list, system: str = "",
                     temperature: float = 0.3, max_tokens: int = 1024) -> str:
         """调用本地模型"""
-        payload = {
+        payload: Dict[str, Any] = {
             "model": self.model,
             "messages": [{"role": "user", "content": m} for m in messages],
             "temperature": temperature,
@@ -190,7 +189,8 @@ class StyleAnalyzer:
 
     # ── 辅助 ──────────────────────────────────────────
 
-    def _features_to_prompt(self, features: Dict[str, Any]) -> str:
+    @staticmethod
+    def _features_to_prompt(features: Dict[str, Any]) -> str:
         """将特征字典转为简短的自然语言描述"""
         if not features:
             return ""

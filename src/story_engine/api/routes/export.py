@@ -4,16 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
 
 from story_engine.api.schemas import ApiResponse, ExportRequest, ExportResult, ImportRequest
-from story_engine.core.config import data_dir
 from story_engine.core.models import Novel
-from story_engine.tools.novel_storage import load_novel, save_novel, NOVELS_ROOT
+from story_engine.tools.novel_storage import NOVELS_ROOT, load_novel, save_novel
 
 logger = logging.getLogger("story_engine.export")
 router = APIRouter(prefix="/api/export", tags=["export"])

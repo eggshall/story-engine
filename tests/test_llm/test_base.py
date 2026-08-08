@@ -1,5 +1,5 @@
 """测试：LLM 模型层"""
-from story_engine.llm.base import LLMRequest, LLMResponse, BaseLLM
+from story_engine.llm.base import BaseLLM, LLMRequest, LLMResponse
 from story_engine.llm.router import ModelRouter
 
 
@@ -26,7 +26,8 @@ class TestLLMBase:
         """测试 system + user 消息拼接"""
         class TestClient(BaseLLM):
             async def chat(self, request): pass
-            async def chat_stream(self, request): yield ""; return
+            async def chat_stream(self, request):
+                yield ""
 
         client = TestClient({"name": "test", "model_id": "m", "provider": "p"})
         msgs = client.format_messages("系统提示", [{"role": "user", "content": "你好"}])
