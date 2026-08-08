@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import shutil
 from datetime import datetime
@@ -18,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from story_engine.core.config import data_dir
 from story_engine.core.models import Novel
-from story_engine.tools.memory_models import SoulMemory, StyleProfile, UserProfile
+from story_engine.tools.memory_models import NovelStyleProfile, SoulMemory, UserProfile
 from story_engine.utils.file_utils import resolve_within
 
 logger = logging.getLogger("story_engine.storage")
@@ -101,7 +102,7 @@ def _read_index() -> Dict[str, str]:
 def _write_index(idx: Dict[str, str]) -> None:
     ip = _index_path()
     ip.parent.mkdir(parents=True, exist_ok=True)
-    ip.write_text(json.dumps(idx, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_write(ip, json.dumps(idx, ensure_ascii=False, indent=2))
 
 
 def _index_has(novel_id: str) -> bool:
@@ -249,9 +250,13 @@ def save_novel(novel: Novel, novel_id: str = "") -> str:
     else:
         title_slug = _slug(novel.title)
 
-        if novel_id.startswith("/"):
+        # Windows 盘符路径（D:\... / C:/...）转 WSL 挂载路径（L17.1）
+        windows_path = convert_windows_path(novel_id)
+        custom_path = windows_path if windows_path != novel_id else novel_id
+
+        if custom_path.startswith("/"):
             # 自定义保存路径：允许绝对路径，但解析后必须仍位于 NOVELS_ROOT 之内（拒绝越界/穿越）
-            custom_dir = resolve_within(NOVELS_ROOT, novel_id, allow_absolute=True)
+            custom_dir = resolve_within(NOVELS_ROOT, custom_path, allow_absolute=True)
             real_dir = custom_dir / title_slug
             real_dir.mkdir(parents=True, exist_ok=True)
             # ID = hash of real path
@@ -274,32 +279,47 @@ def save_novel(novel: Novel, novel_id: str = "") -> str:
     return nid
 
 
+def _atomic_write(path: Path, content: str) -> None:
+    """原子写：先写同目录临时文件再 os.replace，避免写一半留下损坏文件（L14）。"""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def _write_files(base: Path, data: dict) -> None:
-    """写入所有数据文件"""
+    """写入所有数据文件（原子替换）"""
     # 章节
     ch_dir = base / "chapters"
     for f in ch_dir.glob("*.json"):
         f.unlink()
     for ch in data.get("chapters", []):
-        (ch_dir / f"ch_{ch['chapter_number']:04d}.json").write_text(
-            json.dumps(ch, ensure_ascii=False, indent=2), encoding="utf-8")
+        _atomic_write(
+            ch_dir / f"ch_{ch['chapter_number']:04d}.json",
+            json.dumps(ch, ensure_ascii=False, indent=2),
+        )
 
     # 角色
     ch_dir2 = base / "characters"
     for f in ch_dir2.glob("*.json"):
         f.unlink()
     for cname, cdata in data.get("characters", {}).items():
-        _safe_json_path(ch_dir2, cname).write_text(
-            json.dumps(cdata, ensure_ascii=False, indent=2), encoding="utf-8")
+        _atomic_write(
+            _safe_json_path(ch_dir2, cname),
+            json.dumps(cdata, ensure_ascii=False, indent=2),
+        )
 
     # lore
     for lbname, lbdata in data.get("lorebooks", {}).items():
-        _safe_json_path(base / "lore", lbname).write_text(
-            json.dumps(lbdata, ensure_ascii=False, indent=2), encoding="utf-8")
+        _atomic_write(
+            _safe_json_path(base / "lore", lbname),
+            json.dumps(lbdata, ensure_ascii=False, indent=2),
+        )
 
     # 主文件
-    (base / "novel.json").write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_write(
+        base / "novel.json",
+        json.dumps(data, ensure_ascii=False, indent=2),
+    )
 
 
 def _ensure_within(root: Path, target: Path) -> None:
@@ -357,8 +377,7 @@ def save_soul_memory(mem: SoulMemory) -> None:
     mem.updated = datetime.now().isoformat()
     d = _novel_dir(mem.novel_id)
     d.mkdir(parents=True, exist_ok=True)
-    (d / "soul_memory.json").write_text(
-        json.dumps(mem.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_write(d / "soul_memory.json", json.dumps(mem.model_dump(), ensure_ascii=False, indent=2))
 
 
 # ── 文风 ──────────────────────────────────────
@@ -382,13 +401,15 @@ def list_style_profiles(novel_id: str) -> List[Dict[str, Any]]:
     return result
 
 
-def save_style_profile(profile: StyleProfile) -> None:
+def save_style_profile(profile: NovelStyleProfile) -> None:
     nd = _novel_dir(profile.novel_id)
     nd.mkdir(parents=True, exist_ok=True)
     sd = nd / "style_profiles"
     sd.mkdir(exist_ok=True)
-    _safe_json_path(sd, profile.name).write_text(
-        json.dumps(profile.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_write(
+        _safe_json_path(sd, profile.name),
+        json.dumps(profile.model_dump(), ensure_ascii=False, indent=2),
+    )
 
 
 # ── 用户画像 ──────────────────────────────────
@@ -407,8 +428,8 @@ def load_user_profile() -> UserProfile:
 
 def save_user_profile(profile: UserProfile) -> None:
     profile.updated = datetime.now().isoformat()
-    USER_PROFILE_PATH.write_text(
-        json.dumps(profile.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
+    USER_PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write(USER_PROFILE_PATH, json.dumps(profile.model_dump(), ensure_ascii=False, indent=2))
 
 
 # ── 世界地图 ──────────────────────────────────
@@ -420,8 +441,7 @@ def save_map_data(novel_id: str, image_path: str, markers: List[Dict]) -> None:
     nd.mkdir(parents=True, exist_ok=True)
     map_file = nd / "world_map.json"
     data = {"image_path": image_path, "markers": markers}
-    map_file.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_write(map_file, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def load_map_data(novel_id: str) -> Dict:

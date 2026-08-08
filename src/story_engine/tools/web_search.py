@@ -2,11 +2,7 @@
 
 支持的搜索引擎：
 - Bing CN (cn.bing.com) — 主力，结构干净，无需验证
-- 360移动搜索 (m.so.com) — 备用，移动版可免验证
-- 搜狗移动搜索 (wap.sogou.com) — 终极备用
-
-注意：桌面版搜索引擎（360/搜狗/百度）均已开启反爬验证码，
-必须使用移动版才能正常抓取。
+- Bing Intl (www.bing.com) — VPN 开启时使用
 """
 from __future__ import annotations
 
@@ -52,7 +48,7 @@ def _clean_html(raw: str) -> str:
 
 
 def _clean_url(raw: str) -> str:
-    """清理和截取 URL"""
+    """去除 URL 两侧的引号与空白字符"""
     raw = raw.strip().strip('"').strip("'")
     return raw
 
@@ -147,12 +143,9 @@ async def _search_bing(query: str, max_results: int = 8, vpn_mode: bool = False)
 
         # 提取摘要 (Bing 用 <p> 标签)
         snippet = ""
-        for cls in ('b_lineclamp', 'b_caption p',):
-            p_match = re.search(r'<p[^>]*class="[^"]*"[^>]*>(.*?)</p>', raw_block, re.DOTALL)
-            if p_match:
-                snippet = _clean_html(p_match.group(1))
-                if snippet:
-                    break
+        p_match = re.search(r'<p[^>]*class="[^"]*"[^>]*>(.*?)</p>', raw_block, re.DOTALL)
+        if p_match:
+            snippet = _clean_html(p_match.group(1))
         if not snippet:
             p_match = re.search(r'<p[^>]*>(.*?)</p>', raw_block, re.DOTALL)
             if p_match:
@@ -163,132 +156,6 @@ async def _search_bing(query: str, max_results: int = 8, vpn_mode: bool = False)
             snippet=snippet,
             url=_clean_url(url_raw),
             source="bing",
-        ))
-
-    return results, True
-
-
-# ── 360移动搜索 (m.so.com) — 备用 ──────────
-
-async def _search_so_mobile(query: str, max_results: int = 8) -> Tuple[List[SearchResult], bool]:
-    """360移动搜索"""
-    url = f"https://m.so.com/s?q={quote_plus(query)}"
-    try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10, read=15, write=10, pool=10),
-            follow_redirects=True,
-        ) as client:
-            resp = await client.get(url, headers=_MOBILE_HEADERS)
-            resp.raise_for_status()
-            html_text = resp.text
-    except Exception:
-        return [], False
-
-    results: List[SearchResult] = []
-
-    # 360移动版使用 <li> 包裹结果
-    blocks = re.split(r'<li[^>]*>', html_text)
-    if len(blocks) < 2:
-        return [], True
-
-    for block in blocks[1:]:
-        if len(results) >= max_results:
-            break
-
-        title_match = re.search(
-            r'<a[^>]*href="(https?://[^"]+)"[^>]*>(.*?)</a>',
-            block, re.DOTALL,
-        )
-        if not title_match:
-            continue
-        url_raw = title_match.group(1)
-        title = _clean_html(title_match.group(2))
-        if not title or len(title) < 2:
-            continue
-
-        # 找摘要 — 通常在 title 后面的 <p> 或 <div>
-        snippet = ""
-        for cls in ('des', 'summary', 'abstract', 'res-desc'):
-            m = re.search(
-                rf'class="[^"]*{cls}[^"]*"[^>]*>(.*?)</(?:p|span|div)>',
-                block, re.DOTALL,
-            )
-            if m:
-                snippet = _clean_html(m.group(1))
-                break
-        if not snippet:
-            p_match = re.search(r'<p[^>]*>(.*?)</p>', block, re.DOTALL)
-            if p_match:
-                snippet = _clean_html(p_match.group(1))
-
-        results.append(SearchResult(
-            title=title,
-            snippet=snippet,
-            url=_clean_url(url_raw),
-            source="so",
-        ))
-
-    return results, True
-
-
-# ── 搜狗移动搜索 (wap.sogou.com) — 终极备用 ─
-
-async def _search_sogou_mobile(query: str, max_results: int = 8) -> Tuple[List[SearchResult], bool]:
-    """搜狗移动搜索"""
-    url = f"https://wap.sogou.com/web/search.jsp?keyword={quote_plus(query)}"
-    try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10, read=15, write=10, pool=10),
-            follow_redirects=True,
-        ) as client:
-            resp = await client.get(url, headers=_MOBILE_HEADERS)
-            resp.raise_for_status()
-            html_text = resp.text
-    except Exception:
-        return [], False
-
-    results: List[SearchResult] = []
-
-    # 搜狗移动版使用 <div class="result"> 或 <div class="vrwrap">
-    blocks = re.split(r'<div[^>]*class="[^"]*(?:result|vrwrap)[^"]*"[^>]*>', html_text, flags=re.IGNORECASE)
-    if len(blocks) < 2:
-        return [], True
-
-    for block in blocks[1:]:
-        if len(results) >= max_results:
-            break
-
-        title_match = re.search(
-            r'<a[^>]*href="(https?://[^"]+)"[^>]*>(.*?)</a>',
-            block, re.DOTALL,
-        )
-        if not title_match:
-            continue
-        url_raw = title_match.group(1)
-        title = _clean_html(title_match.group(2))
-        if not title or len(title) < 2:
-            continue
-
-        # 找摘要
-        snippet = ""
-        for cls in ('des', 'summary', 'abstract', 'star-wiki'):
-            m = re.search(
-                rf'class="[^"]*{cls}[^"]*"[^>]*>(.*?)</(?:p|span|div)>',
-                block, re.DOTALL,
-            )
-            if m:
-                snippet = _clean_html(m.group(1))
-                break
-        if not snippet:
-            p_match = re.search(r'<p[^>]*>(.*?)</p>', block, re.DOTALL)
-            if p_match:
-                snippet = _clean_html(p_match.group(1))
-
-        results.append(SearchResult(
-            title=title,
-            snippet=snippet,
-            url=_clean_url(url_raw),
-            source="sogou",
         ))
 
     return results, True
@@ -349,54 +216,6 @@ async def fetch_page_content(url: str, max_chars: int = 2000) -> str:
     return content
 
 
-# ── DuckDuckGo (lite) — 国际引擎，仅VPN可用 ─
-
-async def _search_duckduckgo(query: str, max_results: int = 8) -> Tuple[List[SearchResult], bool]:
-    """DuckDuckGo Lite 搜索 — 需 VPN 才能访问"""
-    url = f"https://lite.duckduckgo.com/lite/?q={quote_plus(query)}"
-    try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=8, read=15, write=8, pool=8),
-            follow_redirects=True,
-        ) as client:
-            resp = await client.get(url, headers=_MOBILE_HEADERS)
-            resp.raise_for_status()
-            html_text = resp.text
-    except Exception:
-        return [], False
-
-    results: List[SearchResult] = []
-
-    # DuckDuckGo Lite 使用表格布局: <tr> 包含结果
-    # 标题在 <a rel="nofollow" href="...">
-    links = re.findall(
-        r'<a[^>]*rel="nofollow"[^>]*href="(https?://[^"]+)"[^>]*>(.*?)</a>',
-        html_text, re.DOTALL,
-    )
-
-    for href, title_html in links[:max_results]:
-        title = _clean_html(title_html)
-        if not title or len(title) < 2:
-            continue
-        # 找摘要 — DDG Lite 在结果后跟 <br><span class="snippet"> 或直接跟在 </a> 后
-        snippet = ""
-        idx = html_text.find(f'href="{href}"')
-        if idx > 0:
-            after = html_text[idx:idx+800]
-            snippet = _clean_html(after[:300])
-            # 截取到下一个 <a 或 </tr>
-            snippet = re.split(r'<(?:a|/tr)', snippet)[0].strip()
-
-        results.append(SearchResult(
-            title=title,
-            snippet=snippet[:200],
-            url=_clean_url(href),
-            source="duckduckgo",
-        ))
-
-    return results, True
-
-
 # ── VPN 自动检测 ─────────────────────────────
 
 _VPN_CHECK_PORT = 7890
@@ -454,18 +273,10 @@ async def _is_vpn_active() -> bool:
 
 # ── 主入口 ───────────────────────────────────
 
-_SEARCH_ENGINES_CN = [
+# 引擎表（去重，按名称过滤时先排序去重，避免重复请求）
+_SEARCH_ENGINES = [
     ("bing", _search_bing),
 ]
-
-_SEARCH_ENGINES_INTL = [
-    ("bing", _search_bing),
-]
-
-_VPN_ENDPOINTS = {
-    "bing": "https://www.bing.com/search?q={}",
-    "bing_cn": "https://cn.bing.com/search?q={}",
-}
 
 
 async def search_web(
@@ -485,32 +296,30 @@ async def search_web(
         site: 限定站点，如 "zhihu.com" → 自动添加 site:zhihu.com
 
     VPN 自动检测：
-        - 检测到 127.0.0.1:7890 开启 → 国际引擎（Bing + DuckDuckGo）
-        - 未检测到 → 国内引擎（Bing CN）
+        - 检测到 127.0.0.1:7890 开启 → 国际版 Bing
+        - 未检测到 → Bing CN
         - 传 engines 参数时跳过检测，使用指定的引擎
     """
-    # 确定引擎列表
+    # 确定引擎列表：去重 + 拼接前过滤
     if engines is None:
         vpn_on = await _is_vpn_active()
-        engine_list = _SEARCH_ENGINES_INTL if vpn_on else _SEARCH_ENGINES_CN
+        engine_list = list(_SEARCH_ENGINES)
     else:
         vpn_on = False
+        wanted = set(engines)
         engine_list = [
-            (name, fn) for name, fn in _SEARCH_ENGINES_CN + _SEARCH_ENGINES_INTL
-            if name in engines
+            (name, fn) for name, fn in _SEARCH_ENGINES
+            if name in wanted
         ]
 
     # 如果指定了站点，追加到查询
     full_query = f"site:{site} {query}" if site else query
 
-    # 确定使用的引擎
-    active = engine_list
-
     all_results: List[SearchResult] = []
     seen_urls: set[str] = set()
     engine_used = ""
 
-    for name, fn in active:
+    for name, fn in engine_list:
         if name == "bing":
             results, ok = await fn(full_query, max_results=max_results * 2, vpn_mode=vpn_on)
         else:
@@ -602,15 +411,3 @@ def format_search_context(response: SearchResponse) -> str:
         "如果搜索结果不足以回答，请如实说明。"
     )
     return "\n".join(parts)
-
-
-# ── 快捷入口: 知乎搜索、文库搜索 ────────────
-
-async def search_zhihu(query: str, max_results: int = 5) -> SearchResponse:
-    """搜索知乎相关内容"""
-    return await search_web(query, max_results=max_results, site="zhihu.com")
-
-
-async def search_wenku(query: str, max_results: int = 5) -> SearchResponse:
-    """搜索文库/资料"""
-    return await search_web(query, max_results=max_results, site="wenku.baidu.com")

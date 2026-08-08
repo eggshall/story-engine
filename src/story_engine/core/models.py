@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -18,20 +17,6 @@ class Relationship(BaseModel):
     target: str = Field(description="关联角色名")
     relation: str = Field(description="关系类型（师徒/恋人/仇敌等）")
     description: str = Field(default="", description="关系详细描述")
-
-
-class LoreEntry(BaseModel):
-    """角色专属 Lorebook 条目"""
-    keys: List[str] = Field(description="触发关键词")
-    content: str = Field(description="设定内容")
-    priority: int = Field(default=10, ge=0, le=100, description="优先级，越高越优先")
-    enabled: bool = True
-    position: str = Field(default="after_char", pattern=r"^(before_char|after_char)$")
-
-
-class CharacterLoreBook(BaseModel):
-    """角色专属设定集"""
-    entries: List[LoreEntry] = Field(default_factory=list)
 
 
 class CharacterCard(BaseModel):
@@ -52,7 +37,7 @@ class CharacterCard(BaseModel):
     # 关系与分类
     relationships: List[Relationship] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list, description="分类标签")
-    lorebook: Optional[CharacterLoreBook] = Field(default=None, description="角色专属设定集")
+    lorebook: Optional[LoreBook] = Field(default=None, description="角色专属设定集")
 
     # 元数据
     creator: str = Field(default="story-engine", description="创建者")
@@ -114,13 +99,6 @@ class LoreBook(BaseModel):
 # ==========================================================
 
 
-class WritingMode(str, Enum):
-    """写作模式"""
-    OUTLINE = "outline"       # 大纲模式
-    WRITING = "writing"       # 逐章写作
-    DRAFT = "draft"           # 多版本草稿
-
-
 class ChapterOutline(BaseModel):
     """章节大纲"""
     chapter_number: int
@@ -159,27 +137,3 @@ class Novel(BaseModel):
 
     def chapter_count(self) -> int:
         return len(self.chapters)
-
-
-# ==========================================================
-# 模型层配置
-# ==========================================================
-
-
-class ModelConfig(BaseModel):
-    """单模型配置"""
-    name: str
-    provider: str = Field(description="deepseek / anthropic / local")
-    api_key: str = ""
-    base_url: str = ""
-    model_id: str = Field(description="API 的模型标识符")
-    max_tokens: int = 4096
-    temperature: float = 0.7
-    weight: int = Field(default=1, description="路由权重，越高越优先使用")
-    enabled: bool = True
-
-
-class LLMConfig(BaseModel):
-    """模型层整体配置"""
-    default_model: str = Field(default="deepseek-v4-pro", description="默认使用模型")
-    models: List[ModelConfig] = Field(default_factory=list)

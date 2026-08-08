@@ -37,8 +37,24 @@ def _safe_filename(name: str) -> str:
 
 
 def _detect_and_decode(data: bytes) -> str:
-    """尝试 UTF-8 -> GBK 解码。"""
-    for enc in ("utf-8", "gbk"):
+    """尝试 UTF-8 -> GBK 解码。
+
+    编码 round-trip 校验（L15.3）：候选编码解码后重新编码必须与原字节一致，
+    防止把非该编码的字节序列误判为 GBK（例如 UTF-8 文本恰好落在 GBK 可解范围内）。
+    """
+    candidates = ("utf-8", "gbk")
+    # 1. 严格解出（无异常）+ round-trip 校验：re-encode 与原始字节一致才算可信。
+    #    UTF-8 优先，避免把 GBK 文本误判（其字节可能恰好落在 UTF-8 可解范围）。
+    for enc in candidates:
+        try:
+            text = data.decode(enc)
+        except UnicodeDecodeError:
+            continue
+        if text.encode(enc) == data:
+            return text
+    # 2. 全部 round-trip 失败：取第一个能解出的编码（GBK 文本按 UTF-8 解出时
+    #    round-trip 必失败，此处会轮到 GBK；含 BOM 的 UTF-8 在上一轮已命中）
+    for enc in candidates:
         try:
             return data.decode(enc)
         except UnicodeDecodeError:
@@ -154,12 +170,17 @@ def _save_corpus(title: str, raw_texts: List[str], genre: str, author: str) -> D
 
 
 def import_dir(dir_path: Path, genre: str = "other", author: str = "") -> List[Dict[str, Any]]:
-    """目录=一本书/一个合集: epub 合集拆分多本, 多 txt 分卷合并一本。"""
+    """目录=一本书/一个合集: epub 合集拆分多本, 多 txt 分卷合并一本。
+
+    仅当全部子项成功才归档（L15.4）：任一子项失败时源文件留在原地，
+    并记录失败日志，避免误删未处理数据。
+    """
     files = sorted(f for f in dir_path.iterdir() if f.suffix.lower() in _SUFFIXES)
     if not files:
         return []
 
     recs: List[Dict[str, Any]] = []
+    failed = False
     epubs = [f for f in files if f.suffix.lower() == ".epub"]
     if epubs:
         for ep in epubs:
@@ -168,14 +189,22 @@ def import_dir(dir_path: Path, genre: str = "other", author: str = "") -> List[D
                     continue
                 try:
                     recs.append(_save_corpus(book["title"], [book["text"]], genre, author))
-                except ValueError as exc:
-                    print(f"    跳过空书 {book['title']}: {exc}")
+                except (ValueError, OSError) as exc:
+                    failed = True
+                    print(f"    ⚠ 跳过空书 {book['title']}: {exc}")
     else:
         title = _clean_title(dir_path.name)
         raw_texts = [_read_file_text(f) for f in files]
-        recs.append(_save_corpus(title, raw_texts, genre, author))
+        try:
+            recs.append(_save_corpus(title, raw_texts, genre, author))
+        except (ValueError, OSError) as exc:
+            failed = True
+            print(f"    ⚠ 合并入库失败 {title}: {exc}")
 
-    _archive(dir_path)
+    if not failed:
+        _archive(dir_path)
+    else:
+        print(f"  ⚠ 存在失败子项，{dir_path.name} 未归档，源文件保留")
     return recs
 
 
@@ -198,12 +227,17 @@ def _archive(item: Path) -> None:
 
 
 def scan_imports(genre: str = "other", author: str = "") -> List[Dict[str, Any]]:
-    """扫描 imports/，导入所有未处理文件/目录。"""
+    """扫描 imports/，导入所有未处理文件/目录。
+
+    先收集条目列表再逐个处理（L15.5），避免迭代过程中归档移走条目导致漏处理。
+    """
     ensure_dirs()
     imported = []
-    for item in sorted(IMPORTS_DIR.iterdir()):
-        if item.name.startswith(".") or item.name == "done":
-            continue
+    items = [
+        item for item in sorted(IMPORTS_DIR.iterdir())
+        if item.name != "done" and not item.name.startswith(".")
+    ]
+    for item in items:
         try:
             recs: List[Dict[str, Any]] = []
             if item.is_dir():

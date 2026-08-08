@@ -5,7 +5,36 @@ import re
 from collections import Counter
 from typing import Dict, List
 
-from story_engine.tools.memory_models import StyleProfile, WritingSample
+from story_engine.tools.memory_models import NovelStyleProfile, WritingSample
+
+_DIALOGUE_RE = re.compile(r'[「」『』""]')
+_PSYCH_WORDS = (
+    "想", "觉得", "感到", "知道", "认为", "明白", "理解",
+    "猜测", "暗想", "心道", "思忖", "盘算", "自问",
+)
+_ACTION_VERBS = frozenset((
+    "走", "跑", "跳", "说", "喊", "叫", "笑", "哭", "看", "望",
+    "拿", "放", "提", "抓", "推", "拉", "踢", "打", "杀", "冲",
+    "追", "挥", "踏", "翻", "爬", "跃", "坐", "站", "倒", "扶",
+    "举", "扔", "抱", "背", "砍", "刺", "挡", "躲", "退", "进",
+    "出", "回", "来", "去", "问", "答", "迎", "拜", "跪",
+    "转身", "起身", "迈", "跨", "腾", "扑", "掀",
+))
+
+
+def _classify_sentence(sentence: str) -> str:
+    """将句子归入互斥四类之一：dialogue / psychological / action / description
+
+    先去掉前导的右引号（前一句被标点切分后残留），避免污染分类。
+    """
+    s = sentence.lstrip('」』”"')
+    if _DIALOGUE_RE.search(s):
+        return "dialogue"
+    if any(w in s for w in _PSYCH_WORDS):
+        return "psychological"
+    if any(v in s for v in _ACTION_VERBS):
+        return "action"
+    return "description"
 
 
 def analyze_text_style(
@@ -13,30 +42,36 @@ def analyze_text_style(
     source_name: str = "",
     source_url: str = "",
 ) -> dict:
-    """对一段文本做定量文风分析，返回各项指标"""
+    """对一段文本做定量文风分析，返回各项指标
+
+    四类占比（对话/心理/动作/描写）按句子互斥分类后分别统计，
+    保证各占比互斥且合计 ≈ 1。
+    """
     if not text:
         return {}
 
     # 清洗
     clean = text.strip()
 
-    # 句子统计
-    sentences = re.split(r'[。！？\n]+', clean)
+    # 句子统计（保留标点，避免「」括号与标点错位）
+    sentences = re.split(r'(?<=[。！？\n])', clean)
     sentences = [s.strip() for s in sentences if len(s.strip()) > 2]
     total_sentences = len(sentences)
     if total_sentences == 0:
         return {}
 
     avg_sentence_len = sum(len(s) for s in sentences) / total_sentences
-
-    # 对话占比（检测引号）
-    dialogue_chars = len("".join(re.findall(r'「[^」]*」|"[^"]*"|『[^』]*』', clean)))
     total_chars = len(clean)
-    dialogue_pct = dialogue_chars / total_chars if total_chars else 0
 
-    # 心理描写（"想/觉得/感到/知道" 等标记）
-    psych_words = re.findall(r'[。！？]([^。！？]*(?:想|觉得|感到|知道|认为|明白|理解|猜测)[^。！？]*[。！？])', clean)
-    psych_chars = sum(len(p) for p in psych_words)
+    # 四类互斥占比：每句只归入一类（对话 > 心理 > 动作 > 描写）
+    buckets = {"dialogue": 0, "psychological": 0, "action": 0, "description": 0}
+    for s in sentences:
+        buckets[_classify_sentence(s)] += len(s)
+    classified = sum(buckets.values())
+    dialogue_pct = buckets["dialogue"] / classified if classified else 0
+    psych_pct = buckets["psychological"] / classified if classified else 0
+    action_pct = buckets["action"] / classified if classified else 0
+    desc_pct = buckets["description"] / classified if classified else 0
 
     # 高频形容词和动词
     words = re.findall(r'[\u4e00-\u9fff]{2,4}', clean)
@@ -54,9 +89,11 @@ def analyze_text_style(
     return {
         "avg_sentence_length": round(avg_sentence_len, 1),
         "dialogue_percentage": round(dialogue_pct, 2),
+        "psych_percentage": round(psych_pct, 2),
+        "action_percentage": round(action_pct, 2),
+        "description_percentage": round(desc_pct, 2),
         "sentence_count": total_sentences,
         "total_chars": total_chars,
-        "psych_percentage": round(psych_chars / total_chars, 2) if total_chars else 0,
         "top_adjectives": adj_like[:10],
         "top_verbs": verb_like[:10],
         "source_name": source_name,
@@ -70,18 +107,18 @@ def build_style_profile(
     profile_name: str,
     source_name: str = "",
     source_url: str = "",
-) -> StyleProfile:
+) -> NovelStyleProfile:
     """从文本构建完整的文风档案"""
     stats = analyze_text_style(text, source_name, source_url)
 
-    profile = StyleProfile(
+    profile = NovelStyleProfile(
         novel_id=novel_id,
         name=profile_name,
         avg_sentence_length=stats.get("avg_sentence_length", 0),
         dialogue_percentage=stats.get("dialogue_percentage", 0),
-        description_percentage=round(1 - stats.get("dialogue_percentage", 0) - stats.get("psych_percentage", 0), 2),
+        description_percentage=stats.get("description_percentage", 0),
         psychological_percentage=stats.get("psych_percentage", 0),
-        action_percentage=round(1 - stats.get("dialogue_percentage", 0), 2),
+        action_percentage=stats.get("action_percentage", 0),
         top_adjectives=stats.get("top_adjectives", []),
         top_verbs=stats.get("top_verbs", []),
     )
@@ -131,7 +168,7 @@ def extract_techniques(text: str) -> List[str]:
     return techniques
 
 
-def compare_with_profile(profile: StyleProfile, new_text: str) -> Dict[str, str]:
+def compare_with_profile(profile: NovelStyleProfile, new_text: str) -> Dict[str, str]:
     """比较新文本和已有文风的差异"""
     stats = analyze_text_style(new_text)
     diffs = {}

@@ -131,7 +131,7 @@ def test_index_dedup(tmp_path, monkeypatch):
     recs = load_index()
     assert len(recs) == 2
     assert [r["id"] for r in recs] == ["gutenberg:1", "gutenberg:2"]
-    assert idx.find_by_id("gutenberg:1")["chars"] == 200
+    assert recs[0]["chars"] == 200
 
 
 def test_index_stats(tmp_path, monkeypatch):

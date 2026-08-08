@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import List
 
 try:  # 繁转简 (OpenCC t2s); 未安装时跳过转换
@@ -52,12 +51,26 @@ def _chinese_ratio(s: str) -> float:
 
 
 def _find_start_marker(text: str) -> int:
-    """返回正文起点索引；找不到返回 -1。"""
+    """返回正文起点索引；找不到返回 -1。
+
+    START 标记后可能没有换行（样板行即正文起点），此时从首个可见字符截取，
+    避免把整段正文当作样板丢弃（L15.6）。
+    """
     for marker in _START_MARKERS:
         idx = text.find(marker)
         if idx != -1:
             nl = text.find("\n", idx)
-            return nl + 1 if nl != -1 else len(text)
+            if nl != -1:
+                # 跳过样板行后连续的空行
+                rest = text[nl + 1:]
+                stripped = rest.lstrip("\n")
+                return nl + 1 + (len(rest) - len(stripped))
+            # 无换行：从标记后的首个非空白可见字符开始
+            rest = text[idx + len(marker):]
+            for pos, ch in enumerate(rest):
+                if ch not in "\r\n \t\u3000":
+                    return idx + len(marker) + pos
+            return len(text)
     return -1
 
 
@@ -128,8 +141,23 @@ def normalize_whitespace(text: str) -> str:
 
 
 def to_paragraphs(text: str, min_len: int = 10) -> List[str]:
-    """按空行切分为段落列表，过滤过短片段。"""
+    """按空行切分为段落列表，过滤过短片段。
+
+    空行缺失时（文本全部为单换行分隔）按单换行兜底切分，避免整段吞并
+    （L15.6）。兜底触发条件：按空行切分后段落过少或出现超长段。
+    """
+    import warnings
+
     paras = [p.strip() for p in text.split("\n\n")]
+    paras = [p for p in paras if p]
+    # 兜底判断：段落数太少或存在超长段（> 全文字数一半），说明空行结构丢失
+    total = sum(len(p) for p in paras)
+    if paras and (len(paras) <= 1 or max(len(p) for p in paras) > max(min_len, total // 2)):
+        line_paras = [p.strip() for p in text.split("\n")]
+        line_paras = [p for p in line_paras if p]
+        if len(line_paras) > len(paras):
+            warnings.warn("段落空行缺失，已按单换行兜底切分", stacklevel=2)
+            paras = line_paras
     return [p for p in paras if len(p) >= min_len]
 
 
@@ -147,9 +175,3 @@ def clean_text(raw: str) -> str:
     text = normalize_whitespace(text)
     text = to_simplified(text)
     return text
-
-
-def clean_file(src: str) -> str:
-    """从文件读取并清洗。"""
-    raw = Path(src).read_text(encoding="utf-8", errors="replace")
-    return clean_text(raw)

@@ -73,7 +73,24 @@ BOOKLIST: Dict[str, List[tuple]] = {
 
 
 def _genre_dir(genre: str) -> Path:
-    return CORPUS_DIR / GENRES.get(genre, "其他")
+    """题材目录；未知题材统一回退到 GENRES["other"]（与 config 口径一致，L17.2）。"""
+    return CORPUS_DIR / GENRES.get(genre, GENRES["other"])
+
+
+def _check_catalog() -> None:
+    """接线 catalog：校验书单 eid 是否在 Gutenberg 中文书目中。
+
+    使用缓存优先，网络不可用时静默跳过（不阻塞采集流程）。
+    """
+    try:
+        from .catalog import load_catalog
+        cat = load_catalog()
+    except Exception:  # noqa: BLE001 - 书目校验失败不影响采集
+        return
+    all_eids = [b[0] for books in BOOKLIST.values() for b in books]
+    missing = [eid for eid in all_eids if eid not in cat]
+    if missing:
+        print(f"  ⚠ 以下编号未在 Gutenberg 中文书目中找到: {missing}")
 
 
 def collect_one(eid: str, title: str, author: str, genre: str) -> Path:
@@ -108,6 +125,7 @@ def collect_one(eid: str, title: str, author: str, genre: str) -> Path:
 def collect(genre_filter: str = "") -> None:
     ensure_dirs()
     total = 0
+    _check_catalog()
     for genre, books in BOOKLIST.items():
         if genre_filter and genre != genre_filter:
             continue
@@ -132,6 +150,7 @@ def main() -> None:
     args = ap.parse_args()
 
     if args.list or args.collect:
+        _check_catalog()
         print("══ 题材精选书单 ══")
         for genre, books in BOOKLIST.items():
             if args.genre and genre != args.genre:

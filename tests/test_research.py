@@ -65,11 +65,10 @@ class TestResearchPost:
     """测试 POST /api/research/ — 基于 mock 搜索结果"""
 
     def test_empty_query(self):
-        """空查询应返回 success=False"""
+        """空查询被输入校验拒绝（L11.1：query min_length=1）"""
         resp = client.post("/api/research/", json={"query": ""})
-        assert resp.status_code == 200
-        data = resp.json()
-        assert not data["success"]
+        assert resp.status_code == 422
+        assert "query" in resp.text
 
     def test_research_returns_results(self, mock_search, tmp_research_dir):
         """POST /api/research/ 应返回格式化后的搜索结果"""

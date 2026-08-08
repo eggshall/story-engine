@@ -5,11 +5,19 @@ from fastapi import APIRouter, HTTPException
 
 from story_engine.api.schemas import (
     ApiResponse,
+    ChapterCreateRequest,
+    ChapterReorderRequest,
+    ChapterSaveRequest,
+    ChapterStyleRequest,
+    ConsistencyRequest,
+    MapSaveRequest,
     NovelCreateRequest,
     NovelDetail,
+    NovelUpdateRequest,
+    StyleAnalyzeRequest,
 )
 from story_engine.core.models import Novel
-from story_engine.tools.fixed_tasks import check_consistency
+from story_engine.tools.fixed_tasks import check_name_consistency
 from story_engine.tools.novel_storage import (
     delete_novel,
     list_novels,
@@ -111,14 +119,15 @@ def api_delete_novel(novel_id: str) -> ApiResponse:
 
 
 @router.post("/{novel_id}/update")
-def api_update_novel(novel_id: str, body: dict) -> ApiResponse:
+def api_update_novel(novel_id: str, req: NovelUpdateRequest) -> ApiResponse:
     """更新小说元信息"""
     novel = load_novel(novel_id)
     if not novel:
         return ApiResponse(success=False, message=f"小说 '{novel_id}' 不存在")
     for k in ("title", "author", "genre", "synopsis"):
-        if k in body:
-            setattr(novel, k, body[k])
+        v = getattr(req, k)
+        if v is not None:
+            setattr(novel, k, v)
     save_novel(novel, novel_id)
     return ApiResponse(success=True, message="已更新")
 
@@ -127,7 +136,7 @@ def api_update_novel(novel_id: str, body: dict) -> ApiResponse:
 
 
 @router.post("/{novel_id}/chapters")
-def api_add_chapter(novel_id: str, body: dict) -> ApiResponse:
+def api_add_chapter(novel_id: str, req: ChapterCreateRequest) -> ApiResponse:
     """添加章节"""
     from story_engine.core.models import Chapter
 
@@ -135,10 +144,15 @@ def api_add_chapter(novel_id: str, body: dict) -> ApiResponse:
     if not novel:
         return ApiResponse(success=False, message=f"小说 '{novel_id}' 不存在")
 
+    ch_number = req.chapter_number or (novel.chapter_count() + 1)
+    # 重号检查（L12.2）：拒绝同号覆盖，避免静默丢章节
+    if any(c.chapter_number == ch_number for c in novel.chapters):
+        return ApiResponse(success=False, message=f"章节 {ch_number} 已存在，请使用其它编号")
+
     ch = Chapter(
-        chapter_number=body.get("chapter_number", novel.chapter_count() + 1),
-        title=body.get("title", f"第{novel.chapter_count() + 1}章"),
-        content=body.get("content", ""),
+        chapter_number=ch_number,
+        title=req.title or f"第{ch_number}章",
+        content=req.content or "",
     )
     novel.chapters.append(ch)
     save_novel(novel, novel_id)
@@ -165,19 +179,27 @@ def api_delete_chapter(novel_id: str, chapter_number: int) -> ApiResponse:
 
 
 @router.post("/{novel_id}/chapters/reorder")
-def api_reorder_chapters(novel_id: str, body: dict) -> ApiResponse:
+def api_reorder_chapters(novel_id: str, req: ChapterReorderRequest) -> ApiResponse:
     """重排章节顺序: body = {order: [3, 1, 2, ...]}"""
     novel = load_novel(novel_id)
     if not novel:
         return ApiResponse(success=False, message=f"小说 '{novel_id}' 不存在")
 
-    order = body.get("order", [])
+    order = req.order
     if len(order) != len(novel.chapters):
         return ApiResponse(success=False, message="章节数量不匹配")
 
+    # 集合校验（L12.1）：order 必须与现有章节号一一对应，杜绝静默丢章节
+    existing = {c.chapter_number for c in novel.chapters}
+    if set(order) != existing:
+        return ApiResponse(
+            success=False,
+            message=f"章节号不匹配：需要包含 {sorted(existing)}",
+        )
+
     # 按新顺序重排
     ch_map = {c.chapter_number: c for c in novel.chapters}
-    novel.chapters = [ch_map[num] for num in order if num in ch_map]
+    novel.chapters = [ch_map[num] for num in order]
     for i, c in enumerate(novel.chapters, 1):
         c.chapter_number = i
     save_novel(novel, novel_id)
@@ -185,7 +207,7 @@ def api_reorder_chapters(novel_id: str, body: dict) -> ApiResponse:
 
 
 @router.post("/{novel_id}/chapters/{chapter_number}/save")
-def api_save_chapter(novel_id: str, chapter_number: int, body: dict) -> ApiResponse:
+def api_save_chapter(novel_id: str, chapter_number: int, req: ChapterSaveRequest) -> ApiResponse:
     """保存单章内容"""
     novel = load_novel(novel_id)
     if not novel:
@@ -193,11 +215,12 @@ def api_save_chapter(novel_id: str, chapter_number: int, body: dict) -> ApiRespo
 
     for c in novel.chapters:
         if c.chapter_number == chapter_number:
-            if "title" in body:
-                c.title = body["title"]
-            if "content" in body:
-                c.content = body["content"]
-            c.word_count = len(body.get("content", c.content))
+            if req.title is not None:
+                c.title = req.title
+            if req.content is not None:
+                c.content = req.content
+            # 字数统一由正文计算（L13.1）
+            c.word_count = len(c.content)
             save_novel(novel, novel_id)
             return ApiResponse(success=True, message=f"第{chapter_number}章已保存")
 
@@ -244,12 +267,12 @@ def api_update_memory(novel_id: str, data: dict) -> ApiResponse:
 
 
 @router.post("/{novel_id}/analyze")
-def api_analyze_style(novel_id: str, body: dict) -> ApiResponse:
+def api_analyze_style(novel_id: str, req: StyleAnalyzeRequest) -> ApiResponse:
     """分析一段文本，生成文风档案"""
-    text = body.get("text", "")
-    profile_name = body.get("name", "未命名文风")
-    source_name = body.get("source_name", "")
-    source_url = body.get("source_url", "")
+    text = req.text
+    profile_name = req.name
+    source_name = req.source_name
+    source_url = req.source_url
 
     if not text:
         return ApiResponse(success=False, message="文本不能为空")
@@ -264,14 +287,14 @@ def api_analyze_style(novel_id: str, body: dict) -> ApiResponse:
 
 
 @router.post("/{novel_id}/analyze/style")
-def api_analyze_chapter_style(novel_id: str, body: dict) -> ApiResponse:
+def api_analyze_chapter_style(novel_id: str, req: ChapterStyleRequest) -> ApiResponse:
     """分析章节文本的风格指标 + 写作技法"""
     novel = load_novel(novel_id)
     if not novel:
         return ApiResponse(success=False, message=f"小说 '{novel_id}' 不存在")
 
-    chapter_number = body.get("chapter_number", 1)
-    text = body.get("text", "")
+    chapter_number = req.chapter_number
+    text = req.text
 
     # 如果请求体提供了 text，优先使用；否则从章节读取
     if not text:
@@ -298,14 +321,14 @@ def api_analyze_chapter_style(novel_id: str, body: dict) -> ApiResponse:
 
 
 @router.post("/{novel_id}/analyze/consistency")
-def api_check_consistency(novel_id: str, body: dict) -> ApiResponse:
+def api_check_consistency(novel_id: str, req: ConsistencyRequest) -> ApiResponse:
     """检查章节文本中角色名/地名的一致性"""
     novel = load_novel(novel_id)
     if not novel:
         return ApiResponse(success=False, message=f"小说 '{novel_id}' 不存在")
 
-    chapter_number = body.get("chapter_number", 1)
-    text = body.get("text", "")
+    chapter_number = req.chapter_number
+    text = req.text
 
     # 如果请求体提供了 text，优先使用；否则从章节读取
     if not text:
@@ -329,7 +352,7 @@ def api_check_consistency(novel_id: str, body: dict) -> ApiResponse:
             if hasattr(entry, 'category') and entry.category in ('地理', '地点', 'location', 'geography', 'place'):
                 known_places.extend(entry.keys)
 
-    issues = check_consistency(text, known_names, known_places)
+    issues = check_name_consistency(text, known_names, known_places)
 
     return ApiResponse(success=True, data={
         "issues": issues,
@@ -382,7 +405,7 @@ def api_get_map(novel_id: str) -> ApiResponse:
 
 
 @router.post("/{novel_id}/map")
-def api_save_map(novel_id: str, body: dict) -> ApiResponse:
+def api_save_map(novel_id: str, req: MapSaveRequest) -> ApiResponse:
     """保存小说地图数据"""
     from story_engine.tools.novel_storage import load_map_data, save_map_data
     novel = load_novel(novel_id)
@@ -390,8 +413,8 @@ def api_save_map(novel_id: str, body: dict) -> ApiResponse:
         raise HTTPException(status_code=404, detail=f"小说 '{novel_id}' 不存在")
     save_map_data(
         novel_id,
-        body.get("image_path", ""),
-        body.get("markers", []),
+        req.image_path,
+        req.markers,
     )
     data = load_map_data(novel_id)
     return ApiResponse(success=True, data=data)

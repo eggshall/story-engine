@@ -16,39 +16,52 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from .config import INDEX_FILE, ensure_dirs
 
+logger = logging.getLogger("story_engine.index")
+
+# 单写者锁：串行化读改写，避免并发丢更新（L15.1）
+_write_lock = threading.Lock()
+
 
 def load_index() -> List[Dict[str, Any]]:
-    if INDEX_FILE.exists():
-        return json.loads(INDEX_FILE.read_text(encoding="utf-8"))
-    return []
+    if not INDEX_FILE.exists():
+        return []
+    try:
+        data = json.loads(INDEX_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+        logger.warning("索引内容非列表，返回空")
+        return []
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("索引损坏，防御式返回空: %s", e)
+        return []
 
 
 def save_index(records: List[Dict[str, Any]]) -> None:
     ensure_dirs()
-    INDEX_FILE.write_text(
+    # 临时文件 + os.replace 原子落盘，避免写一半留下损坏索引
+    tmp = INDEX_FILE.with_name(INDEX_FILE.name + ".tmp")
+    tmp.write_text(
         json.dumps(records, ensure_ascii=False, indent=1), encoding="utf-8"
     )
+    os.replace(tmp, INDEX_FILE)
 
 
 def add_record(record: Dict[str, Any]) -> None:
-    """追加一条记录（按 id 去重）。"""
-    records = load_index()
-    records = [r for r in records if r.get("id") != record.get("id")]
-    record.setdefault("created_at", time.strftime("%Y-%m-%d %H:%M:%S"))
-    records.append(record)
-    save_index(records)
-
-
-def find_by_id(rid: str) -> Optional[Dict[str, Any]]:
-    for r in load_index():
-        if r.get("id") == rid:
-            return r
-    return None
+    """追加一条记录（按 id 去重）。单写者锁串行化读改写。"""
+    with _write_lock:
+        records = load_index()
+        records = [r for r in records if r.get("id") != record.get("id")]
+        record.setdefault("created_at", time.strftime("%Y-%m-%d %H:%M:%S"))
+        records.append(record)
+        save_index(records)
 
 
 def stats() -> Dict[str, Any]:

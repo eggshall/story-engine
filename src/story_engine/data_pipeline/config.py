@@ -1,11 +1,32 @@
 """P6 数据管线 — 路径配置。
 
 所有采集数据统一存于 D:/文章数据 (WSL 挂载 /mnt/d/文章数据)。
+可通过环境变量 STORY_ENGINE_DATA_ROOT 覆盖（L17.3）。
 """
+import logging
+import os
 from pathlib import Path
 
-# D 盘数据根目录（用户指定）
-DATA_ROOT = Path("/mnt/d/文章数据")
+logger = logging.getLogger("story_engine.pipeline.config")
+
+# D 盘数据根目录：优先环境变量注入，否则默认 WSL 挂载路径（L17.3）
+_DATA_ROOT_ENV = "STORY_ENGINE_DATA_ROOT"
+
+
+def _resolve_data_root() -> Path:
+    env = os.environ.get(_DATA_ROOT_ENV, "").strip()
+    if env:
+        root = Path(env)
+        if root.is_absolute():
+            return root
+        logger.warning(
+            "环境变量 %s 不是绝对路径（%r），忽略并使用默认路径",
+            _DATA_ROOT_ENV, env,
+        )
+    return Path("/mnt/d/文章数据")
+
+
+DATA_ROOT = _resolve_data_root()
 
 # 子目录
 RAW_DIR = DATA_ROOT / "raw"          # 原始下载文件
@@ -24,7 +45,7 @@ GENRES = {
     "humor_satire": "幽默讽刺",
     "tragic": "悲伤文学",
     "popular": "流行文学",
-    "other": "其他/未分类",
+    "other": "其他",
 }
 
 # 来源类别

@@ -15,7 +15,6 @@ class LLMRequest:
     temperature: float = 0.7
     max_tokens: int = 4096
     stop: Optional[List[str]] = None
-    stream: bool = False
     timeout: Optional[float] = None  # 请求级超时覆盖（秒），None 时用客户端配置
 
 
@@ -59,9 +58,8 @@ class BaseLLM(ABC):
     @abstractmethod
     async def chat_stream(self, request: LLMRequest) -> AsyncGenerator[str, None]:
         """流式聊天，yield 文本块"""
-        ...
-        if False:  # pragma: no cover
-            yield ""
+        # 抽象异步生成器：body 需含 yield 才被 mypy 识别为异步生成器（子类必须实现）
+        yield ""  # pragma: no cover
 
     @abstractmethod
     async def close(self) -> None:

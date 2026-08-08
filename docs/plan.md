@@ -1,7 +1,7 @@
 # 体检 + 优化任务分解计划 (Health Check & Optimization Plan)
 
 > 状态：`docs/requirements.md` 不存在，本文基于对代码库的实际深度体检（ruff/mypy/246 tests 全绿 + 四路代码审查：LLM&core / API / pipeline&tools / tests&工程）推导的优化需求。
-> 当前基线：ruff ✅ / mypy ✅ / **605 passed（覆盖率 90.28%）**，P0/P1/P2 已全部完成。
+> 当前基线：ruff ✅ / mypy ✅ / **617 passed（覆盖率 92.57%）**，P0/P1/P2/P3 已全部完成（P3 暴露的 S7.2、L11–L17 已在回归轮补齐）。
 
 ---
 
@@ -66,7 +66,7 @@
 - **位置**：`src/story_engine/api/schemas.py:86-95`（`ModelInfo.api_key` 未掩码）；`api/routes/models.py:127-129`、`export.py:152-157`（`str(e)` 回显）；`api/routes/system.py:31-76`（主机信息）
 - **任务**：
   - [x] S7.1 `ModelInfo.api_key` 删除或改 `SecretStr`
-  - [ ] S7.2 统一异常信息脱敏（见 P1-E2，随 P1 处理；模型测试端点错误已先行脱敏）
+  - [x] S7.2 统一异常信息脱敏（L9.2/L9.3 已落地：全局 exception handler 返回脱敏信息、移除各端点 `str(e)` 回显；路径校验类明确提示按 L9.3 保留。本轮复核无新增泄漏点）
   - [x] S7.3 系统路径探测接口按调用方/权限裁剪或移除（仅返回 suggested）
 
 ---
@@ -144,35 +144,35 @@
 ### L11. 输入校验补齐
 - **位置**：`src/story_engine/api/schemas.py:21-27,70,79`；`novel.py:111-382`（大量 `body: dict`）
 - **任务**：
-  - [ ] L11.1 `messages` 加 `min_length=1`；`temperature` 加 `ge=0,le=2`；`max_tokens` 加 `ge=1`；`query`/`mode`/`format` 加长度与枚举约束
-  - [ ] L11.2 逐一替换 `body: dict` 端点为请求 schema（含 `content:null` 时 `len()` 崩溃、`Chapter` 字段类型错误 500 等）
+  - [x] L11.1 `messages` 加 `min_length=1`；`temperature` 加 `ge=0,le=2`；`max_tokens` 加 `ge=1`；`query`/`mode`/`format` 加长度与枚举约束
+  - [x] L11.2 逐一替换 `body: dict` 端点为请求 schema（update/add_chapter/reorder/save/analyze×3/map；`content:null` 崩溃与 `Chapter` 类型错误 500 由 schema 校验承接）
 
 ### L12. 章节数据完整性
 - **位置**：`src/story_engine/api/routes/novel.py:176-177,126-142`；`generate.py:169-178`
 - **任务**：
-  - [ ] L12.1 `reorder` 校验 `set(order) == set(existing_numbers)`，杜绝静默丢章节
-  - [ ] L12.2 新增章节前检查 `chapter_number` 是否已存在（同号覆盖或报错）
+  - [x] L12.1 `reorder` 校验 `set(order) == set(existing_numbers)`，杜绝静默丢章节
+  - [x] L12.2 新增章节前检查 `chapter_number` 是否已存在（同号报错，拒绝覆盖）
 
 ### L13. 字数统计口径
 - **位置**：`src/story_engine/api/routes/generate.py:164-175`；`models.py:157-158`
 - **任务**：
-  - [ ] L13.1 错误/fallback 前缀不计入正文与字数；统一由 `Chapter.content` 计算
+  - [x] L13.1 错误/fallback 前缀不计入正文与字数；统一由 `Chapter.content` 计算（`strip_fallback_prefix` + save_chapter 由 content 重算 word_count）
 
 ### L14. 原子写 / 保存可靠性
 - **位置**：`src/story_engine/tools/novel_storage.py:240-265`（先 unlink 再写）
 - **任务**：
-  - [ ] L14.1 先写临时文件再 `os.replace` 原子替换（逐文件或目录级事务）
+  - [x] L14.1 先写临时文件再 `os.replace` 原子替换（`_atomic_write` 覆盖 novel/index/soul_memory/user_profile/map/style_profile 全部落盘路径）
 
 ### L15. 数据管线健壮性
 - **位置**：`data_pipeline/index.py:38-44`、`fetcher.py:29-39`、`importer.py:30-37,40-51,155-165,190-205`、`cleaner.py:59-60,130-133`、`catalog.py:49-50`
 - **任务**：
-  - [ ] L15.1 index 并发丢失更新：单写者锁或追加式写入；损坏 JSON 防御式返回空
-  - [ ] L15.2 fetcher：临时文件 + `os.replace` 原子落盘；校验首行/哈希替代 `st_size>1000`
-  - [ ] L15.3 importer：编码 round-trip 校验防 GBK 误判；epub 改流式/分卷处理控内存
-  - [ ] L15.4 仅当全部子项成功才归档 `done/`，失败文件留在原地 + 写失败日志
-  - [ ] L15.5 迭代目录时不移走条目（先收集列表再处理）
-  - [ ] L15.6 cleaner：START 标记无换行时从首个可见字符截取；段落切分空行缺失时按单换行兜底并告警
-  - [ ] L15.7 catalog JSON 加载加容错
+  - [x] L15.1 index 并发丢失更新：单写者锁（threading.Lock）+ 原子落盘；损坏/非列表 JSON 防御式返回空
+  - [x] L15.2 fetcher：临时文件 + `os.replace` 原子落盘；内容校验（长度 + 中文/START 标记）替代 `st_size>1000`
+  - [x] L15.3 importer：编码 round-trip 校验防 GBK 误判（解出后 re-encode 必须与原字节一致）
+  - [x] L15.4 仅当全部子项成功才归档 `done/`，失败文件留在原地并提示
+  - [x] L15.5 迭代目录时不移走条目（先收集列表再处理）
+  - [x] L15.6 cleaner：START 标记无换行时从首个可见字符截取；段落切分空行缺失时按单换行兜底并告警
+  - [x] L15.7 catalog JSON 加载加容错（损坏/非对象时重新抓取）
 
 ### L16. 性能
 - **位置**：`src/story_engine/tools/fixed_tasks.py:112-124`（O(N×M) 一致性检查）
@@ -233,31 +233,31 @@
 ### C1. LLM/Core 层死代码
 - **位置**：`core/models.py:169-185`（`ModelConfig`/`LLMConfig` 未使用，`weight` 摆设）、`:117-121`（`WritingMode` 未使用）、`:23-34` vs `:94-109`（两套重复 Lorebook 结构）、`llm/base.py:50-51`（`if False: yield` hack）、`base.py:18`（`LLMRequest.stream` 未消费）、`local_client.py:147`（函数内 import json）
 - **任务**：
-  - [ ] C1.1 让 router 消费 `ModelConfig` 或删除；删 `WritingMode`；合并重复 Lorebook 结构
-  - [ ] C1.2 用 `typing.AsyncGenerator` 标注替代 `if False: yield`；消费或删除 `LLMRequest.stream`
-  - [ ] C1.3 `import json` 移到模块顶部
+  - [x] C1.1 删除 `ModelConfig`/`LLMConfig`（未被消费，配置校验走 `config._LLMModelConfig`）；删 `WritingMode`；合并重复 Lorebook 结构（删除 `LoreEntry`/`CharacterLoreBook`，`CharacterCard.lorebook` 统一用 `LoreBook`/`LorebookEntry`）
+  - [x] C1.2 删除未消费的 `LLMRequest.stream`；`if False: yield` 改为抽象异步生成器标准写法（`yield ""  # pragma: no cover`，body 需含 yield 才能被 mypy 识别为异步生成器）
+  - [x] C1.3 `import json` 已在模块顶部（`local_client.py`），函数内 `import time` 一并移到顶部
 
 ### C2. 工具层死代码
 - **位置**：`utils/file_utils.py`（整模块无调用）；`web_search.py`（`_search_so_mobile`/`_search_sogou_mobile`/`_search_duckduckgo`/`_VPN_ENDPOINTS`/`search_zhihu`/`search_wenku` 未引用；`_SEARCH_ENGINES_CN` 与 `_INTL` 相同导致 bing 双请求；`:148-153` 未用循环变量）；`fixed_tasks.py`（`extract_keywords`/`summarize_chapter`/`compress_history` 无调用）；`prompts.py:23`（未使用）；`fetcher.download_many`/`cleaner.clean_file`/`index.find_by_id`（仅测试用）；`catalog.py`（整模块未接线）
 - **任务**：
-  - [ ] C2.1 删除无调用死代码，或补测试 + 接线（catalog 接入 pipeline）
-  - [ ] C2.2 引擎表去重、拼接前过滤；删除空跑正则循环
-  - [ ] C2.3 `_clean_url` docstring 与实现对齐
+  - [x] C2.1 删除无调用死代码（`web_search` 六处、`fixed_tasks` 三函数、`SEARCH_ASSIST_PROMPT`、`download_many`/`clean_file`/`find_by_id`）；`catalog` 接入 `pipeline.py`（`_check_catalog` 校验书单）；`file_utils` 在 P0 已接线（`resolve_within` 被 `novel_storage`/`export` 调用），保留
+  - [x] C2.2 引擎表合并去重、拼接前按名称过滤（消除 bing 双请求）；删除未用循环变量的空跑正则循环
+  - [x] C2.3 `_clean_url` docstring 与实现对齐（仅去两侧引号/空白，无截取）
 
 ### C3. 数据模型统一
 - **位置**：`tools/memory_models.py:121` 与 `style/db.py:28` 两套 `StyleProfile`；`fixed_tasks.check_consistency`（正则）与 `style/analyzer.py:146`（LLM）同名不同实现
 - **任务**：
-  - [ ] C3.1 统一为单一数据模型与单一入口
+  - [x] C3.1 统一为单一数据模型与单一入口：`memory_models.StyleProfile`（小说维度量化画像）重命名为 `NovelStyleProfile`，`StyleProfile` 仅剩 `style.db` 一个；`fixed_tasks.check_consistency`（角色/地名正则校验）重命名为 `check_name_consistency`，`check_consistency` 仅剩 `StyleAnalyzer`（LLM 文风一致性）一个入口
 
 ### C4. 指标口径修复
 - **位置**：`src/story_engine/tools/style_analyzer.py:82-84`（四类百分比非互斥、合计 ≠ 1）
 - **任务**：
-  - [ ] C4.1 按句子/段落分类后分别统计占比，保证互斥
+  - [x] C4.1 按句子分类后分别统计占比：每句归入 对话/心理/动作/描写 互斥四类之一，保证合计 = 1；`build_style_profile` 直接使用统计结果（补回归测试验证合计 ≈ 1）
 
 ### C5. 无效索引清理落地
 - **位置**：`src/story_engine/tools/novel_storage.py:132-134`（只 log 不清理）
 - **任务**：
-  - [ ] C5.1 `list_novels` 真正移除失效索引条目
+  - [x] C5.1 `list_novels` 真正移除失效索引条目（已有实现 + `test_list_cleans_invalid_index_entries` 验证：失效条目不入列表且物理清理）
 
 ---
 

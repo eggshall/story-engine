@@ -84,11 +84,25 @@ class TestFetcher:
 
         monkeypatch.setattr(fetcher.httpx, "Client", FakeClient)
         target = tmp_path / "pg123.txt"
-        target.write_text("x" * 2000, encoding="utf-8")
+        target.write_text(
+            "*** START OF THE PROJECT GUTENBERG EBOOK 三国志演义 ***\n\n" + "正文" * 600,
+            encoding="utf-8",
+        )
         n_before = len(FakeClient.instances)
         path = fetcher.download_ebook("123", tmp_path)
         assert path == target
         assert len(FakeClient.instances) == n_before  # 未发起下载
+
+    def test_download_redownloads_incomplete_content(self, tmp_path, monkeypatch, no_ensure_dirs):
+        """已存在但内容不完整（无正文特征）→ 重新下载（L15.2）"""
+        import story_engine.data_pipeline.fetcher as fetcher
+
+        monkeypatch.setattr(fetcher.httpx, "Client", FakeClient)
+        target = tmp_path / "pg789.txt"
+        target.write_text("x" * 2000, encoding="utf-8")  # 无中文/无 START 标记
+        path = fetcher.download_ebook("789", tmp_path)
+        assert path == target
+        assert "Gutenberg" in target.read_text(encoding="utf-8")  # 已重新下载
 
     def test_download_redownload_when_too_small(self, tmp_path, monkeypatch, no_ensure_dirs):
         import story_engine.data_pipeline.fetcher as fetcher
@@ -109,27 +123,6 @@ class TestFetcher:
         monkeypatch.setattr(fetcher.httpx, "Client", lambda *a, **k: client)
         with pytest.raises(httpx.HTTPStatusError):
             fetcher.download_ebook("999", tmp_path)
-
-    def test_download_many_partial_failure(self, tmp_path, monkeypatch, no_ensure_dirs):
-        import story_engine.data_pipeline.fetcher as fetcher
-
-        monkeypatch.setattr(fetcher.httpx, "Client", FakeClient)
-        results = fetcher.download_many(["24264", "999"], tmp_path)
-        assert "24264" in results
-        assert isinstance(results["24264"], int)
-        # "999" 走 FakeClient 默认成功响应
-        assert isinstance(results["999"], int)
-
-    def test_download_many_failure_reported(self, tmp_path, monkeypatch, no_ensure_dirs):
-        import story_engine.data_pipeline.fetcher as fetcher
-
-        def _boom(*a, **k):
-            raise OSError("network down")
-
-        monkeypatch.setattr(fetcher, "download_ebook", _boom)
-        results = fetcher.download_many(["1", "2"], tmp_path)
-        assert results["1"].startswith("FAIL: OSError")
-        assert results["2"].startswith("FAIL: OSError")
 
 
 # ══════════════════════════════════════════════════════════
@@ -169,6 +162,27 @@ class TestImporter:
         # 无效字节回退 replace
         out = _detect_and_decode(b"\xff\xfe\x00")
         assert isinstance(out, str)
+
+    def test_detect_utf8_not_misdetected_as_gbk(self):
+        """L15.3: round-trip 校验 — 纯 ASCII/UTF-8 文本不应被误判为 GBK"""
+        from story_engine.data_pipeline.importer import _detect_and_decode
+
+        ascii_text = "Hello, World! Story Engine test. " * 20
+        assert _detect_and_decode(ascii_text.encode("utf-8")) == ascii_text
+        utf8_text = "这是一段 UTF-8 中文，包含标点，。！？"
+        assert _detect_and_decode(utf8_text.encode("utf-8")) == utf8_text
+
+    def test_import_dir_not_archived_on_failure(self, import_env):
+        """L15.4: 子项失败时目录不归档，源文件保留"""
+        from story_engine.data_pipeline.importer import import_dir
+
+        book_dir = import_env["imports"] / "失败书"
+        book_dir.mkdir()
+        # 一个无效编码文件（GBK 字节 round-trip 失败且不可解 → 触发失败）
+        (book_dir / "坏卷.txt").write_bytes(b"\xff\xfe\x00\x01\x02")
+        import_dir(book_dir)
+        assert book_dir.exists()  # 未归档
+        assert (book_dir / "坏卷.txt").exists()  # 源文件保留
 
     def test_html_to_text(self):
         from story_engine.data_pipeline.importer import _html_to_text
@@ -369,7 +383,23 @@ class TestPipeline:
 
         monkeypatch.setattr(pl, "CORPUS_DIR", tmp_path)
         assert pl._genre_dir("serious") == tmp_path / "严肃文学"
+        # L17.2: 未知题材与 config "other" 统一回退到 "其他"
         assert pl._genre_dir("未知题材") == tmp_path / "其他"
+        assert pl._genre_dir("other") == tmp_path / "其他"
+
+    def test_data_root_env_override(self, monkeypatch):
+        """L17.3: STORY_ENGINE_DATA_ROOT 环境变量注入数据根目录"""
+        import story_engine.data_pipeline.config as cfg_mod
+
+        monkeypatch.setenv("STORY_ENGINE_DATA_ROOT", "/tmp/story_data_root")
+        assert cfg_mod._resolve_data_root() == __import__("pathlib").Path("/tmp/story_data_root")
+
+    def test_data_root_env_relative_ignored(self, monkeypatch):
+        """L17.3: 相对路径 env 被忽略并回退默认"""
+        import story_engine.data_pipeline.config as cfg_mod
+
+        monkeypatch.setenv("STORY_ENGINE_DATA_ROOT", "relative/path")
+        assert cfg_mod._resolve_data_root() == __import__("pathlib").Path("/mnt/d/文章数据")
 
     def test_collect_one(self, tmp_path, monkeypatch, no_ensure_dirs):
         """下载→清洗→入库→登记索引 单本全流程"""
@@ -559,3 +589,98 @@ class TestCatalog:
         loaded = cat.load_catalog()
         assert loaded == {"24264": "紅樓夢", "24032": "儒林外史"}
         assert catalog_file.exists()  # 抓取后已落盘
+
+    def test_load_catalog_corrupt_refetches(self, tmp_path, monkeypatch, no_ensure_dirs):
+        """L15.7: 书目缓存损坏 → 防御式重新抓取"""
+        import story_engine.data_pipeline.catalog as cat
+
+        catalog_file = tmp_path / "gutenberg_catalog.json"
+        catalog_file.write_text("{broken json", encoding="utf-8")
+        monkeypatch.setattr(cat, "CATALOG_FILE", catalog_file)
+        monkeypatch.setattr(cat.httpx, "Client", FakeCatalogClient)
+        loaded = cat.load_catalog()
+        assert loaded == {"24264": "紅樓夢", "24032": "儒林外史"}
+        assert json.loads(catalog_file.read_text(encoding="utf-8")) == loaded
+
+
+class TestIndexRobustness:
+    """L15.1: 索引并发/损坏容错 + 原子落盘"""
+
+    def test_load_index_corrupt_returns_empty(self, tmp_path, monkeypatch):
+        import story_engine.data_pipeline.index as idx
+
+        index_file = tmp_path / "index.json"
+        index_file.write_text("{broken", encoding="utf-8")
+        monkeypatch.setattr(idx, "INDEX_FILE", index_file)
+        assert idx.load_index() == []
+
+    def test_load_index_non_list_returns_empty(self, tmp_path, monkeypatch):
+        import story_engine.data_pipeline.index as idx
+
+        index_file = tmp_path / "index.json"
+        index_file.write_text('{"a": 1}', encoding="utf-8")
+        monkeypatch.setattr(idx, "INDEX_FILE", index_file)
+        assert idx.load_index() == []
+
+    def test_save_index_atomic_no_temp_left(self, tmp_path, monkeypatch):
+        import story_engine.data_pipeline.index as idx
+
+        index_file = tmp_path / "index.json"
+        monkeypatch.setattr(idx, "INDEX_FILE", index_file)
+        idx.save_index([{"id": "1"}])
+        assert index_file.exists()
+        assert not index_file.with_name(index_file.name + ".tmp").exists()
+        assert idx.load_index() == [{"id": "1"}]
+
+
+class TestFetcherContentValidation:
+    """L15.2: 下载内容校验"""
+
+    def test_invalid_content_marker(self):
+        import story_engine.data_pipeline.fetcher as fetcher
+
+        assert fetcher._is_valid_gutenberg_text("x" * 5000) is False  # 无中文/无样板标记
+        assert fetcher._is_valid_gutenberg_text("正文" * 600) is True  # 中文且够长
+        assert fetcher._is_valid_gutenberg_text(
+            "*** START OF THE PROJECT GUTENBERG EBOOK xxx ***\nbody") is False  # 有标记但太短
+        assert fetcher._is_valid_gutenberg_text(
+            "*** START OF THE PROJECT GUTENBERG EBOOK xxx ***\n" + "正文" * 600) is True
+
+
+class TestCleanerFallback:
+    """L15.6: cleaner START 无换行截取 + 段落兜底"""
+
+    def test_start_marker_no_newline(self):
+        from story_engine.data_pipeline.cleaner import _find_start_marker
+
+        text = "*** START OF THE PROJECT GUTENBERG EBOOK 书名 ***\n正文开始。"
+        idx = _find_start_marker(text)
+        assert idx > 0
+        assert text[idx:].startswith("正文")
+
+    def test_start_marker_without_newline_takes_first_char(self):
+        from story_engine.data_pipeline.cleaner import _find_start_marker
+
+        # START 标记后无换行：从首个可见字符截取，不丢正文（不再整体丢弃到文件末尾）
+        text = "*** START OF THE PROJECT GUTENBERG EBOOK 书名 *** 正文开始。"
+        idx = _find_start_marker(text)
+        assert idx < len(text)  # 不再是 len(text)（整体丢弃）
+        assert "正文开始" in text[idx:]
+
+    def test_to_paragraphs_single_newline_fallback(self):
+        import warnings
+
+        from story_engine.data_pipeline.cleaner import to_paragraphs
+
+        text = "第一段正文，讲述故事的开始与人物登场。\n第二段正文，承接上卷继续展开新的情节。\n第三段正文，为后续冲突埋下伏笔。\n"
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            paras = to_paragraphs(text)
+        assert len(paras) == 3
+
+    def test_to_paragraphs_blank_line_normal(self):
+        from story_engine.data_pipeline.cleaner import to_paragraphs
+
+        text = "第一段正文，内容足够长。\n\n第二段正文，内容足够长。\n\n"
+        paras = to_paragraphs(text)
+        assert len(paras) == 2

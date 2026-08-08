@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from story_engine.core.models import Chapter, Novel
-from story_engine.tools.memory_models import SoulMemory, StyleProfile
+from story_engine.tools.memory_models import NovelStyleProfile, SoulMemory
 from story_engine.tools.novel_storage import (
     delete_novel,
     list_novels,
@@ -219,6 +219,22 @@ class TestConvertWindowsPath:
         assert convert_windows_path("/mnt/d/novels/book") == "/mnt/d/novels/book"
         assert convert_windows_path("novel") == "novel"
 
+    def test_save_novel_applies_windows_conversion(self, tmp_novels, monkeypatch):
+        """L17.1: save_novel 对 Windows 盘符路径先转换再解析（不再当作非法 relative id）"""
+        import story_engine.tools.novel_storage as storage_mod
+
+        calls = []
+
+        def _fake_convert(path: str) -> str:
+            calls.append(path)
+            return str(tmp_novels / "书架")  # 转成根内绝对路径
+
+        monkeypatch.setattr(storage_mod, "convert_windows_path", _fake_convert)
+        nid = save_novel(Novel(title="盘符小说"), "D:\\书架")
+        assert calls == ["D:\\书架"]
+        assert nid.startswith("novel_")  # 走了自定义路径 hash 分支
+        assert (tmp_novels / "书架" / "盘符小说" / "novel.json").exists()
+
 
 class TestIndexManagement:
     """索引管理：注册/读取/损坏容错"""
@@ -349,7 +365,7 @@ class TestNameAsFilename:
         assert not (tmp_novels.parent / ".._.._世界.json").exists()
 
     def test_malicious_style_profile_name_does_not_escape(self, tmp_novels):
-        profile = StyleProfile(
+        profile = NovelStyleProfile(
             novel_id="s3_test",
             name="../../恶意",
             style_summary="恶意名称",
@@ -427,7 +443,7 @@ class TestStyleProfiles:
         assert list_style_profiles("nonexistent") == []
 
     def test_save_and_list(self, tmp_novels):
-        profile = StyleProfile(
+        profile = NovelStyleProfile(
             novel_id="style_test",
             name="金庸风格",
             style_summary="古典武侠文风",

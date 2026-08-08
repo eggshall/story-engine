@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 from typing import Dict
@@ -13,6 +14,8 @@ from typing import Dict
 import httpx
 
 from .config import CATALOG_FILE, ensure_dirs
+
+logger = logging.getLogger("story_engine.catalog")
 
 BROWSE_URL = "https://www.gutenberg.org/browse/languages/zh"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) StoryEngine-P6/0.1"
@@ -39,15 +42,22 @@ def fetch_catalog() -> Dict[str, str]:
 def save_catalog(catalog: Dict[str, str]) -> None:
     """保存书目到 meta/gutenberg_catalog.json。"""
     ensure_dirs()
-    CATALOG_FILE.write_text(
-        json.dumps(catalog, ensure_ascii=False, indent=1), encoding="utf-8"
-    )
+    tmp = CATALOG_FILE.with_name(CATALOG_FILE.name + ".tmp")
+    tmp.write_text(json.dumps(catalog, ensure_ascii=False, indent=1), encoding="utf-8")
+    import os
+    os.replace(tmp, CATALOG_FILE)
 
 
 def load_catalog() -> Dict[str, str]:
-    """加载已保存的书目；不存在则抓取。"""
+    """加载已保存的书目；损坏/不存在则抓取（L15.7）。"""
     if CATALOG_FILE.exists():
-        return json.loads(CATALOG_FILE.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(CATALOG_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+            logger.warning("书目缓存内容非对象，重新抓取")
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("书目缓存损坏（%s），重新抓取", e)
     catalog = fetch_catalog()
     save_catalog(catalog)
     return catalog

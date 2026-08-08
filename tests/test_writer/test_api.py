@@ -168,6 +168,55 @@ class TestChapterAPI:
         assert novel["chapters"][0]["chapter_number"] == 1
         assert novel["chapters"][0]["title"] == "章B"  # 原来顺序2的变成第1章
 
+    def test_reorder_rejects_missing_number(self, monkeypatch):
+        """L12.1: order 集合与现有章节号不一致时拒绝，杜绝静默丢章节"""
+        tmp = Path(tempfile.mkdtemp())
+        monkeypatch.setattr("story_engine.tools.novel_storage.NOVELS_ROOT", tmp)
+        client.post("/api/novel/", json={"title": "排序缺号"})
+        client.post("/api/novel/排序缺号/chapters", json={"title": "章A"})
+        client.post("/api/novel/排序缺号/chapters", json={"title": "章B"})
+        resp = client.post("/api/novel/排序缺号/chapters/reorder", json={"order": [2, 3]})
+        assert not resp.json()["success"]
+        assert "章节号不匹配" in resp.json()["message"]
+
+    def test_add_duplicate_chapter_number_rejected(self, monkeypatch):
+        """L12.2: 新增章节使用已存在编号时拒绝，避免同号覆盖"""
+        tmp = Path(tempfile.mkdtemp())
+        monkeypatch.setattr("story_engine.tools.novel_storage.NOVELS_ROOT", tmp)
+        client.post("/api/novel/", json={"title": "重号"})
+        resp = client.post("/api/novel/重号/chapters", json={
+            "chapter_number": 5, "title": "第五章",
+        })
+        assert resp.json()["success"]
+        resp = client.post("/api/novel/重号/chapters", json={
+            "chapter_number": 5, "title": "重复",
+        })
+        assert not resp.json()["success"]
+        assert "已存在" in resp.json()["message"]
+
+    def test_chat_rejects_empty_messages(self):
+        """L11.1: messages 为空被输入校验拒绝"""
+        resp = client.post("/api/generate/chat", json={"messages": [], "stream": False})
+        assert resp.status_code == 422
+
+    def test_chat_rejects_invalid_temperature(self):
+        """L11.1: temperature 超出 [0,2] 被拒绝"""
+        resp = client.post("/api/generate/chat", json={
+            "messages": [{"role": "user", "content": "hi"}],
+            "temperature": 5,
+            "stream": False,
+        })
+        assert resp.status_code == 422
+
+    def test_chat_rejects_invalid_mode(self):
+        """L11.1: mode 非 chat/write 被拒绝"""
+        resp = client.post("/api/generate/chat", json={
+            "messages": [{"role": "user", "content": "hi"}],
+            "mode": "bogus",
+            "stream": False,
+        })
+        assert resp.status_code == 422
+
 
 class TestMemoryAPI:
     def test_get_default_memory(self, monkeypatch):
@@ -213,6 +262,15 @@ class TestUserProfileAPI:
         resp2 = client.get("/api/novel/user/profile")
         assert resp2.json()["data"]["preferred_name"] == "作家A"
         assert resp2.json()["data"]["default_writing_mode"] == "简洁"
+
+
+class TestWordCountMetric:
+    def test_strip_fallback_prefix(self):
+        """L13.1: fallback 前缀不计入正文/字数"""
+        from story_engine.api.routes.generate import strip_fallback_prefix
+
+        assert strip_fallback_prefix("[Fallback → backup]\n正文内容") == "正文内容"
+        assert strip_fallback_prefix("无前缀正文") == "无前缀正文"
 
 
 class TestChatAPI:
@@ -358,8 +416,7 @@ class TestExportAPI:
 class TestResearchAPI:
     def test_empty_query(self):
         resp = client.post("/api/research/", json={"query": ""})
-        assert resp.status_code == 200
-        assert not resp.json()["success"]
+        assert resp.status_code == 422
 
     def test_research(self, monkeypatch):
         import story_engine.api.routes.research as research_mod

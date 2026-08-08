@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from story_engine.tools.memory_models import (
     CharacterMemory,
+    NovelStyleProfile,
     SoulMemory,
-    StyleProfile,
     UserProfile,
     WritingSample,
 )
@@ -89,15 +89,15 @@ class TestUserProfile:
         assert "玄幻" in up.common_genres
 
 
-class TestStyleProfile:
+class TestNovelStyleProfile:
     def test_default(self):
-        sp = StyleProfile(novel_id="n1", name="分析")
+        sp = NovelStyleProfile(novel_id="n1", name="分析")
         assert sp.novel_id == "n1"
         assert sp.name == "分析"
         assert sp.samples == []
 
     def test_with_samples(self):
-        sp = StyleProfile(
+        sp = NovelStyleProfile(
             novel_id="n1", name="分析",
             avg_sentence_length=12.5,
             dialogue_percentage=0.3,

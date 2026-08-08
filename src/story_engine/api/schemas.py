@@ -16,18 +16,21 @@ class APIModel(BaseModel):
 
 # ── 请求 ──────────────────────────────────────────────
 
+_MODE_RE = r"^(chat|write)$"
+
+
 class ChatRequest(APIModel):
     """AI 对话请求"""
-    messages: List[Dict[str, str]] = Field(description="消息列表 [role, content]")
+    messages: List[Dict[str, str]] = Field(min_length=1, description="消息列表 [role, content]")
     system_prompt: str = ""
     model: str = Field(default="", description="模型名称，为空使用默认")
-    temperature: float = 0.7
-    max_tokens: int = 4096
+    temperature: float = Field(default=0.7, ge=0, le=2)
+    max_tokens: int = Field(default=4096, ge=1)
     stream: bool = True
-    mode: str = Field(default="chat", description="模式: chat=普通闲聊 / write=专业写作")
+    mode: str = Field(default="chat", pattern=_MODE_RE, description="模式: chat=普通闲聊 / write=专业写作")
     search: bool = Field(default=False, description="是否启用联网搜索")
-    style_prompt: str = Field(default="", description="文风描述，非空时注入 system prompt")
-    profile_id: str = Field(default="", description="文风画像 ID，优先于 style_prompt（完整注入特征+样本）")
+    style_prompt: str = Field(default="", max_length=4000, description="文风描述，非空时注入 system prompt")
+    profile_id: str = Field(default="", max_length=100, description="文风画像 ID，优先于 style_prompt（完整注入特征+样本）")
 
 
 class GenerateOutlineRequest(BaseModel):
@@ -67,16 +70,16 @@ class ModelConfigRequest(BaseModel):
 
 class ResearchRequest(BaseModel):
     """资料检索请求"""
-    query: str = Field(description="检索问题")
+    query: str = Field(min_length=1, max_length=200, description="检索问题")
     save_to_lore: bool = False
-    lore_category: str = "research"
+    lore_category: str = Field(default="research", max_length=50)
 
 
 class ExportRequest(BaseModel):
     """导出请求"""
-    novel_id: str = ""
-    output_dir: str = ""
-    format: str = "md"
+    novel_id: str = Field(default="", max_length=200)
+    output_dir: str = Field(default="", max_length=500)
+    format: str = Field(default="md", pattern=r"^(md|json)$")
     export_all: bool = True
     chapter_numbers: List[int] = []
 
@@ -144,6 +147,58 @@ class ImportRequest(BaseModel):
     json_data: str = Field(description="JSON 项目数据（字符串）")
     restore_path: str = Field(default="", description="可选：导入到的自定义路径")
     force: bool = Field(default=False, description="覆盖已存在的小说")
+
+
+class NovelUpdateRequest(APIModel):
+    """更新小说元信息 — 全部可选"""
+    title: Optional[str] = Field(default=None, max_length=200)
+    author: Optional[str] = Field(default=None, max_length=100)
+    genre: Optional[str] = Field(default=None, max_length=50)
+    synopsis: Optional[str] = Field(default=None, max_length=20000)
+
+
+class ChapterCreateRequest(APIModel):
+    """添加章节请求"""
+    chapter_number: Optional[int] = Field(default=None, ge=1)
+    title: str = Field(default="", max_length=200)
+    content: Optional[str] = Field(default="", max_length=1000000)
+
+
+class ChapterReorderRequest(APIModel):
+    """章节重排请求"""
+    order: List[int] = Field(description="新的章节号顺序")
+
+
+class ChapterSaveRequest(APIModel):
+    """保存单章请求"""
+    title: Optional[str] = Field(default=None, max_length=200)
+    content: Optional[str] = Field(default=None, max_length=1000000)
+
+
+class StyleAnalyzeRequest(APIModel):
+    """文风档案分析请求"""
+    text: str = Field(min_length=1, max_length=200000, description="待分析文本")
+    name: str = Field(default="未命名文风", max_length=100)
+    source_name: str = Field(default="", max_length=200)
+    source_url: str = Field(default="", max_length=1000)
+
+
+class ChapterStyleRequest(APIModel):
+    """章节风格分析请求"""
+    chapter_number: int = Field(default=1, ge=1)
+    text: str = Field(default="", max_length=200000)
+
+
+class ConsistencyRequest(APIModel):
+    """章节一致性检查请求"""
+    chapter_number: int = Field(default=1, ge=1)
+    text: str = Field(default="", max_length=200000)
+
+
+class MapSaveRequest(APIModel):
+    """保存小说地图请求"""
+    image_path: str = Field(default="", max_length=1000)
+    markers: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class ApiResponse(BaseModel):

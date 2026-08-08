@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, AsyncGenerator, Dict
 
 import httpx
@@ -58,7 +59,6 @@ class LocalLLMClient(BaseLLM):
 
     async def _check_server(self) -> tuple[bool, str]:
         """检查本地模型服务器是否在运行（结果缓存 _HEALTH_TTL 秒）"""
-        import time
         now = time.monotonic()
         if self._health is not None and (now - self._health_at) < _HEALTH_TTL:
             return self._health

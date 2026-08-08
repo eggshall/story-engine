@@ -107,7 +107,7 @@ class UserProfile(BaseModel):
 
 
 # ═══════════════════════════════════════════════
-# 文风剖析 (Style Profile) — 从外部文本提取
+# 文风剖析 (Novel Style Profile) — 从外部文本提取
 # ═══════════════════════════════════════════════
 
 class WritingSample(BaseModel):
@@ -118,8 +118,12 @@ class WritingSample(BaseModel):
     analyzed_at: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
-class StyleProfile(BaseModel):
-    """从外部资料分析的文风画像"""
+class NovelStyleProfile(BaseModel):
+    """从外部资料分析的单部小说文风画像。
+
+    与 story_engine.style.db.StyleProfile（全局文风库画像）区分：
+    本模型按小说维度保存量化指标与样本，供文风分析/对比使用。
+    """
     novel_id: str = Field(description="关联小说")
     name: str = Field(description="文风档案名称")
 

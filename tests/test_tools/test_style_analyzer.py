@@ -1,7 +1,7 @@
 """测试：文风分析器 — 风格定量分析"""
 from __future__ import annotations
 
-from story_engine.tools.memory_models import StyleProfile
+from story_engine.tools.memory_models import NovelStyleProfile
 from story_engine.tools.style_analyzer import (
     analyze_text_style,
     build_style_profile,
@@ -32,6 +32,21 @@ class TestAnalyzeTextStyle:
         result = analyze_text_style(text)
         assert result["sentence_count"] >= 3
 
+    def test_percentages_mutually_exclusive(self):
+        """C4: 四类占比互斥，合计 ≈ 1"""
+        text = "他推开门走了进去。山间云雾缭绕，仙鹤齐鸣。「好地方！」他心中暗想。"
+        result = analyze_text_style(text)
+        total = (
+            result.get("dialogue_percentage", 0)
+            + result.get("psych_percentage", 0)
+            + result.get("action_percentage", 0)
+            + result.get("description_percentage", 0)
+        )
+        assert abs(total - 1.0) <= 0.05
+        assert result["action_percentage"] > 0
+        assert result["dialogue_percentage"] > 0
+        assert result["psych_percentage"] > 0
+
     def test_top_adjectives(self):
         text = "美丽的花园。宏伟的大殿。神秘的功法。古老的传说。"
         result = analyze_text_style(text)
@@ -52,6 +67,18 @@ class TestBuildStyleProfile:
         text = "测试文本。"
         profile = build_style_profile(text, "n2", "n", source_name="来源")
         assert profile.novel_id == "n2"
+
+    def test_percentages_sum_to_one(self):
+        """C4: build_style_profile 的四类占比合计 ≈ 1"""
+        text = "他推开门走了进去。山间云雾缭绕。「好地方！」他心中暗想。"
+        profile = build_style_profile(text, "n", "风")
+        total = (
+            profile.dialogue_percentage
+            + profile.psychological_percentage
+            + profile.action_percentage
+            + profile.description_percentage
+        )
+        assert abs(total - 1.0) <= 0.05
 
 
 class TestExtractTechniques:
@@ -74,12 +101,12 @@ class TestExtractTechniques:
 
 class TestCompareWithProfile:
     def test_no_profile_stats(self):
-        profile = StyleProfile(novel_id="test", name="empty")
+        profile = NovelStyleProfile(novel_id="test", name="empty")
         diffs = compare_with_profile(profile, "一段测试文本。")
         assert diffs == {}
 
     def test_similar_text(self):
-        profile = StyleProfile(novel_id="test", name="t", avg_sentence_length=10)
+        profile = NovelStyleProfile(novel_id="test", name="t", avg_sentence_length=10)
         diffs = compare_with_profile(profile, "短文本。刚好两句话。测试。")
         # 短文本，偏差可能小
         assert isinstance(diffs, dict)

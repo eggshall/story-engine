@@ -25,6 +25,14 @@ logger = logging.getLogger("story_engine.api")
 
 router = APIRouter(prefix="/api/generate", tags=["generate"])
 
+# 真实 fallback 前缀（见 L5.2 / L13.1）：不计入正文与字数
+_FALLBACK_PREFIX_RE = re.compile(r"^\[Fallback → [^\]]+\]\s*")
+
+
+def strip_fallback_prefix(text: str) -> str:
+    """去掉流式/非流式 fallback 前缀，保证正文与字数口径一致。"""
+    return _FALLBACK_PREFIX_RE.sub("", text, count=1)
+
 # 全局 Router（懒加载 + 锁 + reload 钩子）
 _router: ModelRouter | None = None
 _router_lock = threading.Lock()
@@ -195,14 +203,14 @@ async def _stream_chapter(engine, ch_num: int, title: str, model: str, novel: No
         if hasattr(gen, "aclose"):
             await gen.aclose()
 
-    # 3. 保存章节
+    # 3. 保存章节（字数由正文统一计算，排除 fallback 前缀，见 L13.1）
     chapter = Chapter(
         chapter_number=ch_num,
         title=outline.title,
         content=full_content,
         outline=outline,
         model_used=model or "default",
-        word_count=len(full_content),
+        word_count=len(strip_fallback_prefix(full_content)),
     )
     novel_data.chapters.append(chapter)
     await anyio.to_thread.run_sync(_save_novel, novel_data, novel_id)
