@@ -314,6 +314,50 @@ class TestSsrProtection:
         resp = client.post("/api/models/pub/test")
         assert resp.json()["data"]["status"] == "ok"
 
+    def test_probe_uses_api_tags_for_ollama(self, monkeypatch):
+        """ollama provider 应探测 /api/tags"""
+        self._set_models([{
+            "name": "ollama", "provider": "ollama", "model_id": "qwen",
+            "base_url": "http://localhost:11434", "api_key": "ollama", "enabled": True,
+        }], monkeypatch)
+
+        captured = {}
+
+        async def mock_get(client, url, **kwargs):
+            captured["url"] = url
+            mock = MagicMock()
+            mock.status_code = 200
+            return mock
+
+        monkeypatch.setattr("httpx.AsyncClient.get", mock_get)
+        resp = client.post("/api/models/ollama/test")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["status"] == "ok"
+        assert captured["url"].endswith("/api/tags")
+
+    def test_probe_5xx_returns_error(self, monkeypatch):
+        """服务端 5xx 应返回 error 状态"""
+        async def mock_get(*args, **kwargs):
+            mock = MagicMock()
+            mock.status_code = 500
+            return mock
+
+        monkeypatch.setattr("httpx.AsyncClient.get", mock_get)
+        resp = client.post("/api/models/pro-model/test")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["status"] == "error"
+
+    def test_probe_3xx_redirect_counts_ok(self, monkeypatch):
+        """非 5xx 的 HTTP 状态（如 200/404/3xx）按连接成功处理"""
+        async def mock_get(*args, **kwargs):
+            mock = MagicMock()
+            mock.status_code = 404
+            return mock
+
+        monkeypatch.setattr("httpx.AsyncClient.get", mock_get)
+        resp = client.post("/api/models/pro-model/test")
+        assert resp.json()["data"]["status"] == "ok"
+
     def test_timeout_connection(self, monkeypatch):
         """模拟超时"""
         async def mock_get(*args, **kwargs):
