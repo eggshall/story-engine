@@ -5,6 +5,7 @@
 """
 import logging
 import os
+import sys
 from pathlib import Path
 
 logger = logging.getLogger("story_engine.pipeline.config")
@@ -12,18 +13,27 @@ logger = logging.getLogger("story_engine.pipeline.config")
 # D 盘数据根目录：优先环境变量注入，否则默认 WSL 挂载路径（L17.3）
 _DATA_ROOT_ENV = "STORY_ENGINE_DATA_ROOT"
 
+_DEFAULT_DATA_ROOT = Path("/mnt/d/文章数据")
+
 
 def _resolve_data_root() -> Path:
+    """解析数据根目录：环境变量注入优先，失败给清晰提示后回退默认。
+
+    L17.3: 环境变量为绝对路径时直接采用；非绝对路径视为配置注入失败，
+    同时在日志与 stderr 输出可操作的提示（CLI 场景 logger 可能未配置 handler）。
+    """
     env = os.environ.get(_DATA_ROOT_ENV, "").strip()
     if env:
         root = Path(env)
         if root.is_absolute():
             return root
-        logger.warning(
-            "环境变量 %s 不是绝对路径（%r），忽略并使用默认路径",
-            _DATA_ROOT_ENV, env,
+        message = (
+            f"环境变量 {_DATA_ROOT_ENV} 必须是绝对路径（收到 {env!r}），"
+            f"已忽略该值并回退到默认数据根目录 {_DEFAULT_DATA_ROOT}"
         )
-    return Path("/mnt/d/文章数据")
+        logger.warning(message)
+        print(f"⚠ {message}", file=sys.stderr)
+    return _DEFAULT_DATA_ROOT
 
 
 DATA_ROOT = _resolve_data_root()

@@ -394,12 +394,15 @@ class TestPipeline:
         monkeypatch.setenv("STORY_ENGINE_DATA_ROOT", "/tmp/story_data_root")
         assert cfg_mod._resolve_data_root() == __import__("pathlib").Path("/tmp/story_data_root")
 
-    def test_data_root_env_relative_ignored(self, monkeypatch):
-        """L17.3: 相对路径 env 被忽略并回退默认"""
+    def test_data_root_env_relative_ignored(self, monkeypatch, capsys):
+        """L17.3: 相对路径 env 被忽略并回退默认，且给出可见的失败提示"""
         import story_engine.data_pipeline.config as cfg_mod
 
         monkeypatch.setenv("STORY_ENGINE_DATA_ROOT", "relative/path")
         assert cfg_mod._resolve_data_root() == __import__("pathlib").Path("/mnt/d/文章数据")
+        err = capsys.readouterr().err
+        assert "STORY_ENGINE_DATA_ROOT" in err
+        assert "绝对路径" in err
 
     def test_collect_one(self, tmp_path, monkeypatch, no_ensure_dirs):
         """下载→清洗→入库→登记索引 单本全流程"""
@@ -426,6 +429,25 @@ class TestPipeline:
         assert len(records) == 1
         assert records[0]["id"] == "gutenberg:24264"
         assert records[0]["genre"] == "serious"
+
+    def test_collect_one_unknown_genre_fallback(self, tmp_path, monkeypatch, no_ensure_dirs):
+        """L17.2: 未知题材 collect_one 落到 GENRES['other'] 目录（与 config 口径统一）"""
+        import story_engine.data_pipeline.pipeline as pl
+
+        corpus = tmp_path / "corpus"
+        monkeypatch.setattr(pl, "CORPUS_DIR", corpus)
+        raw = tmp_path / "raw.txt"
+        raw.write_text(
+            "*** START OF THE PROJECT GUTENBERG EBOOK 无名书 ***\n\n"
+            "正文开始，讲述故事。\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(pl, "download_ebook", lambda eid: raw)
+        monkeypatch.setattr(pl, "add_record", lambda rec: None)
+
+        out = pl.collect_one("1", "无名书", "某作者", "不存在的题材")
+        assert out == corpus / "其他" / "某作者" / "无名书.txt"
+        assert out.exists()
 
     def test_collect_one_empty_cleaned(self, tmp_path, monkeypatch, no_ensure_dirs):
         """清洗后为空 → 抛 ValueError 不落盘"""

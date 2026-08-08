@@ -53,3 +53,28 @@ class TestCheckNameConsistency:
         """阈值收紧：长度不同（2 字 vs 3 字）不报疑似"""
         issues = check_name_consistency("张三丰走上武当", [], ["武当山"])
         assert all(i["type"] != "place" for i in issues)
+
+    def test_large_text_full_scan(self):
+        """L16.1: 差一字的词出现在长文末尾也能命中（索引覆盖整篇而非局部）"""
+        text = "序章。" + "正文。" * 600 + "众人登上武档山，云雾缭绕。"
+        issues = check_name_consistency(text, [], ["武当山"])
+        place_issues = [i for i in issues if i["type"] == "place"]
+        assert len(place_issues) == 1
+        assert "武档山" in place_issues[0]["issue"]
+
+    def test_many_places_each_one_issue(self):
+        """L16.1: 大量地名逐一比对，命中只报一条且不误伤不相关地名"""
+        known = [f"地点{i}山" for i in range(100)]
+        text = "主角走进影帝出，风声萧瑟。" + "，".join(known)
+        issues = check_name_consistency(text, [], known + ["影帝山"])
+        place_issues = [i for i in issues if i["type"] == "place"]
+        assert len(place_issues) == 1
+        assert "影帝出" in place_issues[0]["issue"]
+        assert all(i["name"] == "影帝山" for i in place_issues)
+
+    def test_two_char_place_typo(self):
+        """L16.1: 两字地名差一字同样命中（签名索引对 n=2 有效）"""
+        issues = check_name_consistency("东安城内热闹非凡", [], ["长安"])
+        place_issues = [i for i in issues if i["type"] == "place"]
+        assert len(place_issues) == 1
+        assert "东安" in place_issues[0]["issue"]

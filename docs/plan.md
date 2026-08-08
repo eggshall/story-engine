@@ -177,14 +177,14 @@
 ### L16. 性能
 - **位置**：`src/story_engine/tools/fixed_tasks.py:112-124`（O(N×M) 一致性检查）
 - **任务**：
-  - [ ] L16.1 预分词建索引；每地名最多一条 issue；提高匹配阈值
+  - [x] L16.1 预分词建索引；每地名最多一条 issue；提高匹配阈值
 
 ### L17. 杂项修复
 - **位置**：`novel_storage.py:213`（Windows 路径转换触发条件）、`pipeline.py:75-76` vs `config.py:27`（题材回退名不一致）、`data_pipeline/config.py:8`（硬编码 `/mnt/d/文章数据`）
 - **任务**：
-  - [ ] L17.1 Windows 盘符路径 `D:\` 正确识别
-  - [ ] L17.2 题材回退目录名统一
-  - [ ] L17.3 `DATA_ROOT` 改为环境变量/配置注入，失败给清晰提示
+  - [x] L17.1 Windows 盘符路径 `D:\` 正确识别
+  - [x] L17.2 题材回退目录名统一
+  - [x] L17.3 `DATA_ROOT` 改为环境变量/配置注入，失败给清晰提示
 
 ---
 

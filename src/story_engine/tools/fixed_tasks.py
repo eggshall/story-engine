@@ -1,7 +1,7 @@
 """固定流程工具集 — 角色/地名一致性检查"""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # ── 一致性检查 ────────────────────────────────
 
@@ -39,19 +39,17 @@ def check_name_consistency(
     if not known_places:
         return issues
 
-    # 预建 n-gram 索引（L16.1）：按地名长度生成定长子串集合，只扫一遍正文。
-    # 后续每个地名只查对应长度桶，O(候选数)，避免全量 O(N×M)。
+    # 预分词建倒排索引（L16.1）：对正文每个定长 n-gram 生成「去掉第 k 位」的
+    # 签名，倒排到出现该签名的词集合。查询时地名只查自身 n 个签名桶，
+    # 桶内候选天然满足「仅差一字」，总复杂度 O((N+M)×n) 而非 O(N×M)。
     lengths = {len(p) for p in known_places if len(p) >= 2}
-    ngrams: Dict[int, set] = {
-        n: {new_text[i:i + n] for i in range(len(new_text) - n + 1)}
-        for n in lengths
-    }
+    index = _build_ngram_index(new_text, lengths)
 
     # 检查地名是否被错误改写（阈值：等长且仅差一个字；每地名最多一条 issue）
     for place in known_places:
         if len(place) < 2 or place in new_text:
             continue
-        matched_word = _find_similar_word(place, ngrams.get(len(place), set()))
+        matched_word = _find_similar_word(place, index)
         if matched_word:
             issues.append({
                 "type": "place",
@@ -62,13 +60,28 @@ def check_name_consistency(
     return issues
 
 
-def _find_similar_word(place: str, ngram_set: "set") -> Optional[str]:
-    """在等长 n-gram 集合里找与 place 仅差一个字的候选词（首命中即返回）。"""
+def _build_ngram_index(text: str, lengths: Set[int]) -> Dict[Tuple[int, str], Set[str]]:
+    """建「去一位签名」倒排索引: (k, 去掉第 k 位后的子串) → 出现该签名的词集合。"""
+    index: Dict[Tuple[int, str], Set[str]] = {}
+    for n in lengths:
+        for i in range(len(text) - n + 1):
+            word = text[i:i + n]
+            for k in range(n):
+                sig = (k, word[:k] + word[k + 1:])
+                index.setdefault(sig, set()).add(word)
+    return index
+
+
+def _find_similar_word(place: str, index: Dict[Tuple[int, str], Set[str]]) -> Optional[str]:
+    """查询与 place 等长且仅差一个字的候选词（首命中即返回）。
+
+    阈值收紧为「恰好差一字」：地名与候选词在同一位置去掉同一位后签名一致，
+    即只有该位可不同，其余位必须相同。
+    """
     n = len(place)
-    for word in ngram_set:
-        if word == place:
-            continue
-        same = sum(1 for a, b in zip(word, place) if a == b)
-        if same >= n - 1:
-            return word  # 命中一个即返回，每地名至多一条
+    for k in range(n):
+        sig = (k, place[:k] + place[k + 1:])
+        for word in index.get(sig, ()):
+            if word != place:
+                return word  # 首命中即返回，每地名至多一条
     return None

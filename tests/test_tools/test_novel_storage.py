@@ -214,6 +214,13 @@ class TestConvertWindowsPath:
         assert convert_windows_path("D:\\novels\\book") == "/mnt/d/novels/book"
         assert convert_windows_path("C:/Users/me") == "/mnt/c/Users/me"
 
+    def test_drive_root_and_case(self):
+        """L17.1: 盘符根路径与大小写盘符（D:\\ → /mnt/d/，e: → /mnt/e）"""
+        from story_engine.tools.novel_storage import convert_windows_path
+        assert convert_windows_path("D:\\") == "/mnt/d/"
+        assert convert_windows_path("d:\\x") == "/mnt/d/x"
+        assert convert_windows_path("E:/foo/bar") == "/mnt/e/foo/bar"
+
     def test_non_windows_path_unchanged(self):
         from story_engine.tools.novel_storage import convert_windows_path
         assert convert_windows_path("/mnt/d/novels/book") == "/mnt/d/novels/book"
