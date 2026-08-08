@@ -227,6 +227,20 @@ story-engine/
 
 ---
 
+| 当前项目状态 (更新于 2026-08-08)
+
+### Phase 3 — opencode 多 Agent 全流程体检优化 (2026-08-08) ✅
+> 流水线: requirements → decomposer → coder → tester → fixer (opencode subagent)
+> 详细任务追踪: docs/plan.md (93 项) / 测试报告: docs/test-report.md
+
+- [x] P0 安全红线 (S1-S7): novel_id 路径穿越、save_path/output_dir 任意写、名称作文件名穿越、importer 越界写、无鉴权+CORS 通配、SSRF、api_key 泄漏
+- [x] P1 正确性/健壮性 (L1-L9): 超时配置失效、close_all 连接泄漏、fallback 吞诊断、SSE 双重编码、async 阻塞 IO、竞态锁、reasoning_content 回退
+- [x] P2 工程健康 (E1-E6): GitHub Actions CI、伪测试隔离、conftest fixture、弱断言清理、覆盖率门禁 75%、README/版本 0.8.0
+- [x] P3 清理重构 (C1-C5): 死代码删除、双 StyleProfile 统一、数据管线原子写/编码校验/损坏容错 (L15)
+- [x] 测试: 246 → 617 passed, 覆盖率 67% → 92.57%, ruff/mypy 全绿
+- [ ] 剩余低优 (未做): L16.1 fixed_tasks 性能优化、L17 Windows 盘符路径/DATA_ROOT 环境变量注入
+- [x] 后端 API 鉴权: security.api_key (X-API-Key), CORS 白名单 localhost:5173
+
 | 当前项目状态 (更新于 2026-06-19)
 
 ### Phase 1 已完成 ✅
