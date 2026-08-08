@@ -2,6 +2,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from story_engine.data_pipeline import cleaner  # noqa: E402
@@ -145,6 +147,32 @@ def test_index_stats(tmp_path, monkeypatch):
     assert s["total_chars"] == 600
     assert s["by_genre"] == {"serious": 2, "popular": 1}
     assert s["by_source"] == {"gutenberg": 2, "import": 1}
+
+
+# ── importer 文件名安全 ─────────────────────────────────
+
+def test_importer_safe_filename():
+    from story_engine.data_pipeline.importer import _safe_filename
+    assert _safe_filename("../../evil") == ""
+    assert _safe_filename("..") == ""
+    assert _safe_filename("A/B") == "A_B"
+    assert _safe_filename("正常书名") == "正常书名"
+
+
+def test_importer_save_corpus_stays_within(tmp_path, monkeypatch):
+    from story_engine.data_pipeline import importer
+    corpus = tmp_path / "corpus"
+    monkeypatch.setattr(importer, "CORPUS_DIR", corpus)
+    monkeypatch.setattr(importer, "add_record", lambda rec: None)
+
+    with pytest.raises(ValueError):
+        importer._save_corpus("../../evil", ["这是一段足够长的正文内容，讲述故事的开始与发展。"], "other", "")
+
+    rec = importer._save_corpus("A/B", ["这是一段足够长的正文内容，讲述故事的开始与发展。"], "other", "")
+    out = corpus / "imports" / "A_B.txt"
+    assert out.exists()
+    assert rec["title"] == "A/B"
+    assert not (tmp_path / "evil.txt").exists()
 
 
 # ── catalog 解析逻辑 ─────────────────────────────────────

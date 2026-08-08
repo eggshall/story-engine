@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from typing import Any, AsyncGenerator, Dict
 
 import httpx
 
 from story_engine.llm.base import BaseLLM, LLMRequest, LLMResponse
+
+# 健康探测结果缓存 TTL（秒）
+_HEALTH_TTL = 30
 
 
 class LocalLLMClient(BaseLLM):
@@ -22,38 +27,63 @@ class LocalLLMClient(BaseLLM):
         self.connect_timeout = config.get("connect_timeout", 10)
         self._warmed = False
         self._client: httpx.AsyncClient | None = None
+        self._client_read_timeout: int | None = None
+        self._health: tuple[bool, str] | None = None
+        self._health_at: float = 0.0
+        self._lock = asyncio.Lock()
+
+    def _close_client(self) -> None:
+        if self._client is not None:
+            self._client = None
+        self._client_read_timeout = None
 
     def _get_client(self, read_timeout: int | None = None) -> httpx.AsyncClient:
+        """按当前配置（或显式传入）的超时构建持久客户端，超时变化时重建。"""
+        effective_timeout = read_timeout or self.read_timeout
         timeout = httpx.Timeout(
             connect=self.connect_timeout,
-            read=read_timeout or self.read_timeout,
+            read=effective_timeout,
             write=self.connect_timeout,
             pool=self.connect_timeout,
         )
-        if self._client is None:
+        if self._client is None or self._client_read_timeout != effective_timeout:
+            self._close_client()
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
                 timeout=timeout,
                 headers={"Content-Type": "application/json"},
             )
+            self._client_read_timeout = effective_timeout
         return self._client
 
     async def _check_server(self) -> tuple[bool, str]:
-        """检查本地模型服务器是否在运行"""
-        # Ollama 使用 /api/tags，llama.cpp 使用 /health
+        """检查本地模型服务器是否在运行（结果缓存 _HEALTH_TTL 秒）"""
+        import time
+        now = time.monotonic()
+        if self._health is not None and (now - self._health_at) < _HEALTH_TTL:
+            return self._health
+        # 探测用临时客户端，不复用持久 client，避免 10s 超时污染
         endpoints = ["/api/tags", "/health", "/"]
+        timeout = httpx.Timeout(connect=5, read=5, write=5, pool=5)
+        result: tuple[bool, str] = (False, "")
         for ep in endpoints:
             try:
-                client = self._get_client(read_timeout=10)
-                resp = await client.get(ep, timeout=httpx.Timeout(connect=5, read=5, write=5, pool=5))
-                if resp.status_code < 500:
-                    return True, ep
+                async with httpx.AsyncClient(
+                    base_url=self.base_url, timeout=timeout,
+                    headers={"Content-Type": "application/json"},
+                ) as client:
+                    resp = await client.get(ep)
+                    if resp.status_code < 500:
+                        result = (True, ep)
+                        break
             except Exception:
                 continue
-        return False, ""
+        self._health = result
+        self._health_at = now
+        return result
 
     async def _warm_up(self) -> bool:
-        """预热：发送一次最小请求，让模型加载到 GPU"""
+        """预热：发送一次最小请求，让模型加载到 GPU（临时客户端 + 长超时）"""
         if self._warmed:
             return True
         payload = {
@@ -62,32 +92,35 @@ class LocalLLMClient(BaseLLM):
             "max_tokens": 1,
         }
         try:
-            client = self._get_client(read_timeout=120)  # 预热用长超时
-            resp = await client.post("/v1/chat/completions", json=payload)
-            resp.raise_for_status()
-            self._warmed = True
-            return True
+            async with httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=httpx.Timeout(connect=self.connect_timeout, read=120,
+                                       write=30, pool=10),
+                headers={"Content-Type": "application/json"},
+            ) as client:
+                resp = await client.post("/v1/chat/completions", json=payload)
+                resp.raise_for_status()
+                self._warmed = True
+                return True
         except Exception:
             return False
 
-    async def chat(self, request: LLMRequest) -> LLMResponse:
-        alive, ep = await self._check_server()
-        if not alive:
-            return LLMResponse(
-                success=False,
-                error=f"本地模型服务器 {self.base_url} 未启动",
-                provider=self.provider,
-            )
+    async def _ensure_ready(self) -> str:
+        """探测 + 预热（加锁串行化，消除 _warmed 竞态）。失败返回错误信息，成功返回空串。"""
+        async with self._lock:
+            alive, _ep = await self._check_server()
+            if not alive:
+                return f"本地模型服务器 {self.base_url} 未启动"
+            if not self._warmed:
+                warmed = await self._warm_up()
+                if not warmed:
+                    return "本地模型预热失败（首次加载超时）"
+        return ""
 
-        # 首次请求自动预热
-        if not self._warmed:
-            warmed = await self._warm_up()
-            if not warmed:
-                return LLMResponse(
-                    success=False,
-                    error="本地模型预热失败（首次加载超时）",
-                    provider=self.provider,
-                )
+    async def chat(self, request: LLMRequest) -> LLMResponse:
+        err = await self._ensure_ready()
+        if err:
+            return LLMResponse(success=False, error=err, provider=self.provider)
 
         payload = {
             "model": self.model_id or "local",
@@ -99,7 +132,7 @@ class LocalLLMClient(BaseLLM):
         }
 
         try:
-            client = self._get_client()
+            client = self._get_client(read_timeout=self.read_timeout)
             resp = await client.post("/v1/chat/completions", json=payload)
             resp.raise_for_status()
             data = resp.json()
@@ -121,16 +154,10 @@ class LocalLLMClient(BaseLLM):
             return LLMResponse(success=False, error=str(e), provider=self.provider)
 
     async def chat_stream(self, request: LLMRequest) -> AsyncGenerator[str, None]:
-        alive, ep = await self._check_server()
-        if not alive:
-            yield f"\n[Error: 本地模型服务器 {self.base_url} 未启动]"
+        err = await self._ensure_ready()
+        if err:
+            yield f"\n[Error: {err}]"
             return
-
-        if not self._warmed:
-            warmed = await self._warm_up()
-            if not warmed:
-                yield "\n[Error: 本地模型预热失败]"
-                return
 
         payload = {
             "model": self.model_id or "local",
@@ -141,10 +168,9 @@ class LocalLLMClient(BaseLLM):
         }
 
         try:
-            client = self._get_client()
+            client = self._get_client(read_timeout=self.read_timeout)
             async with client.stream("POST", "/v1/chat/completions", json=payload) as resp:
                 resp.raise_for_status()
-                import json
                 async for line in resp.aiter_lines():
                     if not line or line.startswith(":"):
                         continue

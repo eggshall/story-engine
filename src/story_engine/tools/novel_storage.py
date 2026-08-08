@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 from story_engine.core.config import data_dir
 from story_engine.core.models import Novel
 from story_engine.tools.memory_models import SoulMemory, StyleProfile, UserProfile
+from story_engine.utils.file_utils import resolve_within
 
 logger = logging.getLogger("story_engine.storage")
 
@@ -32,11 +33,42 @@ def _index_path() -> Path:
     return NOVELS_ROOT / ".index.json"
 
 
+_UNSAFE_ID_RE = re.compile(r"[/\\%\x00-\x1f]")
+
+
 def _slug(text: str) -> str:
     """将标题转为安全的目录名"""
     s = text.strip().replace(" ", "_").replace("/", "_").replace("\\", "_")
-    s = re.sub(r'[<>:"|?*]', "", s)
+    s = re.sub(r'[<>:"|?*%]', "", s)
+    s = re.sub(r"[\x00-\x1f]", "", s)
     return s or "untitled"
+
+
+def _safe_json_path(base: Path, name: str) -> Path:
+    """用 slug 清洗名称生成安全文件名，确保不越出 base 目录。
+
+    原始名称由调用方写入 JSON 内容字段，文件名只用 slug 后的安全形式。
+    """
+    fname = _slug(name)
+    p = (base / f"{fname}.json").resolve()
+    if p.parent != base.resolve():
+        raise ValueError(f"非法文件名: {name!r}")
+    return p
+
+
+def _safe_novel_id(novel_id: str) -> str:
+    """校验并净化 novel_id，防止路径穿越。
+
+    允许 unicode 字母数字及 `_`/`-`（兼容中文标题），拒绝路径分隔符、
+    `..`、控制符、疑似 URL 编码（`%`）等危险值，非法时抛 ValueError。
+    """
+    if not novel_id:
+        raise ValueError("novel_id 不能为空")
+    if _UNSAFE_ID_RE.search(novel_id):
+        raise ValueError(f"非法 novel_id: {novel_id!r}")
+    if novel_id.strip() in (".", "..") or ".." in novel_id:
+        raise ValueError(f"非法 novel_id: {novel_id!r}")
+    return novel_id
 
 
 def _hash_id(path: str) -> str:
@@ -100,6 +132,7 @@ def _index_unregister(novel_id: str) -> None:
 
 def _novel_dir(novel_id: str) -> Path:
     """返回小说的实际存储目录"""
+    _safe_novel_id(novel_id)
     # 先查索引
     real = _index_get(novel_id)
     if real:
@@ -198,7 +231,7 @@ def save_novel(novel: Novel, novel_id: str = "") -> str:
 
     规则:
       - novel_id 为空或相对名称 → 保存到 data/novels/{slug}/
-      - novel_id 为绝对路径(/mnt/...) → 保存到 {novel_id}/{小说名}/，注册索引
+      - novel_id 以 / 开头 → 视为自定义路径，但必须解析后仍在 NOVELS_ROOT 内
       - novel_id 已注册索引 → 从索引取真实目录（自定义路径小说）
     """
     novel.updated = datetime.now().isoformat()
@@ -210,18 +243,18 @@ def save_novel(novel: Novel, novel_id: str = "") -> str:
         real_dir.mkdir(parents=True, exist_ok=True)
         nid = novel_id
     else:
-        custom_path = convert_windows_path(novel_id) if novel_id and novel_id.startswith("/") else ""
         title_slug = _slug(novel.title)
 
-        if custom_path:
-            # 保存到自定义路径: {路径}/{小说名}/
-            real_dir = Path(custom_path) / title_slug
+        if novel_id.startswith("/"):
+            # 自定义保存路径必须位于 NOVELS_ROOT 之内（拒绝绝对路径/穿越）
+            custom_dir = resolve_within(NOVELS_ROOT, novel_id)
+            real_dir = custom_dir / title_slug
             real_dir.mkdir(parents=True, exist_ok=True)
             # ID = hash of real path
             nid = _hash_id(str(real_dir))
             _index_register(nid, str(real_dir))
         else:
-            nid = novel_id or title_slug
+            nid = _safe_novel_id(novel_id or title_slug)
             real_dir = NOVELS_ROOT / nid
             real_dir.mkdir(parents=True, exist_ok=True)
 
@@ -252,17 +285,28 @@ def _write_files(base: Path, data: dict) -> None:
     for f in ch_dir2.glob("*.json"):
         f.unlink()
     for cname, cdata in data.get("characters", {}).items():
-        (ch_dir2 / f"{cname}.json").write_text(
+        _safe_json_path(ch_dir2, cname).write_text(
             json.dumps(cdata, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # lore
     for lbname, lbdata in data.get("lorebooks", {}).items():
-        (base / "lore" / f"{lbname}.json").write_text(
+        _safe_json_path(base / "lore", lbname).write_text(
             json.dumps(lbdata, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # 主文件
     (base / "novel.json").write_text(
         json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _ensure_within(root: Path, target: Path) -> None:
+    """确认 target 解析后仍位于 root 之下，否则抛 ValueError（防目录穿越）"""
+    try:
+        resolved = target.resolve()
+        root_resolved = root.resolve()
+    except OSError as e:
+        raise ValueError(f"非法路径: {target}") from e
+    if resolved != root_resolved and root_resolved not in resolved.parents:
+        raise ValueError(f"路径越界: {target}")
 
 
 def delete_novel(novel_id: str) -> bool:
@@ -276,6 +320,7 @@ def delete_novel(novel_id: str) -> bool:
         return False
 
     if had_dir:
+        _ensure_within(NOVELS_ROOT, nd)
         shutil.rmtree(nd)
         logger.info("已删除目录: %s", nd)
 
@@ -284,6 +329,7 @@ def delete_novel(novel_id: str) -> bool:
     # 如果默认目录下也有，也删
     default_dir = NOVELS_ROOT / novel_id
     if default_dir.exists() and default_dir != nd:
+        _ensure_within(NOVELS_ROOT, default_dir)
         shutil.rmtree(default_dir)
         logger.info("已删除默认目录: %s", default_dir)
 
@@ -337,7 +383,7 @@ def save_style_profile(profile: StyleProfile) -> None:
     nd.mkdir(parents=True, exist_ok=True)
     sd = nd / "style_profiles"
     sd.mkdir(exist_ok=True)
-    (sd / f"{profile.name}.json").write_text(
+    _safe_json_path(sd, profile.name).write_text(
         json.dumps(profile.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
 
 

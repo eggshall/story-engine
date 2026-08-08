@@ -233,7 +233,7 @@ class TestTestConnection:
         assert data["data"]["status"] == "ok"
 
     def test_failed_connection(self, monkeypatch):
-        """模拟 HTTP 抛出异常"""
+        """模拟 HTTP 抛出异常 — 错误信息不泄露内部细节"""
         async def mock_get(*args, **kwargs):
             raise Exception("Connection refused")
 
@@ -243,7 +243,76 @@ class TestTestConnection:
         data = resp.json()
         assert data["success"] is True  # 测试本身没挂
         assert data["data"]["status"] == "error"
-        assert "Connection refused" in data["data"]["message"]
+        assert "Connection refused" not in data["data"]["message"]
+
+
+class TestSsrProtection:
+    """SSRF 防护：内网/元数据/非 https 地址被拒"""
+
+    def _set_models(self, models, monkeypatch):
+        cfg = get_config()
+        cfg.set("llm.models", models)
+        cfg.save()
+        import story_engine.core.config as cfg_mod
+        monkeypatch.setattr(cfg_mod, "_config_instance", None)
+
+    @pytest.mark.parametrize("bad_url", [
+        "http://169.254.169.254/latest/meta-data",
+        "http://10.0.0.5/api",
+        "http://192.168.1.1",
+        "http://172.16.0.9",
+        "file:///etc/passwd",
+        "ftp://example.com/file",
+    ])
+    def test_probe_rejects_internal_url(self, bad_url, monkeypatch):
+        self._set_models([{
+            "name": "evil", "provider": "openai", "model_id": "x",
+            "base_url": bad_url, "api_key": "", "enabled": True,
+        }], monkeypatch)
+        resp = client.post("/api/models/evil/test")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is False
+        assert data["data"]["status"] == "error"
+
+    def test_probe_rejects_public_http(self, monkeypatch):
+        self._set_models([{
+            "name": "http-only", "provider": "openai", "model_id": "x",
+            "base_url": "http://api.example.com/v1", "api_key": "", "enabled": True,
+        }], monkeypatch)
+        resp = client.post("/api/models/http-only/test")
+        assert resp.json()["data"]["status"] == "error"
+
+    def test_probe_allows_localhost_local_model(self, monkeypatch):
+        self._set_models([{
+            "name": "local", "provider": "local", "model_id": "qwen",
+            "base_url": "http://localhost:11434", "api_key": "ollama", "enabled": True,
+        }], monkeypatch)
+
+        async def mock_get(*args, **kwargs):
+            mock = MagicMock()
+            mock.status_code = 200
+            return mock
+
+        monkeypatch.setattr("httpx.AsyncClient.get", mock_get)
+        resp = client.post("/api/models/local/test")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["status"] == "ok"
+
+    def test_probe_allows_public_https(self, monkeypatch):
+        self._set_models([{
+            "name": "pub", "provider": "openai", "model_id": "x",
+            "base_url": "https://1.1.1.1/v1", "api_key": "", "enabled": True,
+        }], monkeypatch)
+
+        async def mock_get(*args, **kwargs):
+            mock = MagicMock()
+            mock.status_code = 200
+            return mock
+
+        monkeypatch.setattr("httpx.AsyncClient.get", mock_get)
+        resp = client.post("/api/models/pub/test")
+        assert resp.json()["data"]["status"] == "ok"
 
     def test_timeout_connection(self, monkeypatch):
         """模拟超时"""

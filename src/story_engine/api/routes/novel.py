@@ -76,7 +76,10 @@ async def api_create_novel(req: NovelCreateRequest) -> ApiResponse:
     )
     # 支持自定义保存路径
     custom_path = req.save_path.strip() if req.save_path else ""
-    novel_id = save_novel(novel, custom_path)
+    try:
+        novel_id = save_novel(novel, custom_path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # 返回完整详情
     detail = NovelDetail(

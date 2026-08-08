@@ -108,6 +108,86 @@ class TestNovelStorage:
         assert "世界" in loaded.lorebooks
 
 
+# ── 路径穿越防护 ──────────────────────────────
+
+
+class TestPathTraversal:
+    @pytest.mark.parametrize("bad", ["../../", "..", "%2e%2e", "/etc", "a\\b"])
+    def test_load_rejects_traversal(self, tmp_novels, bad):
+        with pytest.raises(ValueError):
+            load_novel(bad)
+
+    @pytest.mark.parametrize("bad", ["../../", "..", "%2e%2e", "/etc", "a\\b"])
+    def test_delete_rejects_traversal(self, tmp_novels, bad):
+        with pytest.raises(ValueError):
+            delete_novel(bad)
+
+    @pytest.mark.parametrize("bad", ["..", "%2e%2e", "a/b", "a\\b"])
+    def test_save_rejects_traversal_id(self, tmp_novels, bad):
+        with pytest.raises(ValueError):
+            save_novel(Novel(title="穿越测试"), bad)
+
+    @pytest.mark.parametrize("bad", ["/etc", "/mnt/d/evil", "D:\\evil", "/etc/passwd"])
+    def test_save_rejects_absolute_custom_path(self, tmp_novels, bad):
+        with pytest.raises(ValueError):
+            save_novel(Novel(title="绝对路径"), bad)
+
+    def test_save_custom_path_stays_within_root(self, tmp_novels):
+        with pytest.raises(ValueError):
+            save_novel(Novel(title="越界"), "/../../etc")
+
+    def test_save_plain_relative_id_still_works(self, tmp_novels):
+        nid = save_novel(Novel(title="书架小说"), "书架")
+        assert nid == "书架"
+        assert (tmp_novels / "书架").exists()
+
+    def test_chinese_title_still_works(self, tmp_novels):
+        nid = save_novel(Novel(title="你好，世界！"))
+        assert nid == "你好，世界！"
+        assert (tmp_novels / nid / "novel.json").exists()
+
+
+class TestNameAsFilename:
+    def test_malicious_character_names_do_not_escape(self, tmp_novels):
+        from story_engine.core.models import CharacterCard
+
+        novel = Novel(title="恶意角色")
+        novel.characters["../../x"] = CharacterCard(name="../../x")
+        novel.characters[r"含<>:\"|?*特殊"] = CharacterCard(name=r"含<>:\"|?*特殊")
+        nid = save_novel(novel)
+
+        ch_dir = tmp_novels / nid / "characters"
+        files = list(ch_dir.glob("*.json"))
+        assert files
+        for f in files:
+            assert f.parent.resolve() == ch_dir.resolve()
+        loaded = load_novel(nid)
+        assert "../../x" in loaded.characters
+        assert r"含<>:\"|?*特殊" in loaded.characters
+
+    def test_malicious_lore_name_does_not_escape(self, tmp_novels):
+        from story_engine.core.models import LoreBook
+
+        novel = Novel(title="恶意lore")
+        novel.lorebooks["../../世界"] = LoreBook(name="../../世界")
+        nid = save_novel(novel)
+        assert (tmp_novels / nid / "lore" / ".._.._世界.json").exists()
+        assert not (tmp_novels.parent / ".._.._世界.json").exists()
+
+    def test_malicious_style_profile_name_does_not_escape(self, tmp_novels):
+        profile = StyleProfile(
+            novel_id="s3_test",
+            name="../../恶意",
+            style_summary="恶意名称",
+            avg_sentence_length=10,
+        )
+        save_style_profile(profile)
+        profiles = list_style_profiles("s3_test")
+        assert len(profiles) == 1
+        assert profiles[0]["name"] == "../../恶意"
+        assert not (tmp_novels.parent / ".._.._恶意.json").exists()
+
+
 # ── 灵魂记忆 ──────────────────────────────────
 
 

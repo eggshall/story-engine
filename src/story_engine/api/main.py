@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from story_engine import __version__
 from story_engine.api.routes import export, generate, models, novel, research, style, system
+from story_engine.core.config import get_config
 
 # ── 日志配置 ────────────────────────────────
 
@@ -39,10 +42,41 @@ app = FastAPI(
     version=__version__,
 )
 
-# CORS — 允许前端开发服务器访问
+# 鉴权中间件：配置了 security.api_key 时必须携带 X-API-Key；
+# 未配置时仅允许本机回环访问（其余客户端一律 403）。
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+@app.middleware("http")
+async def api_auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api") and path != "/api/health":
+        cfg = get_config()
+        api_key = (cfg.get("security.api_key") or "").strip()
+        if api_key:
+            provided = request.headers.get("X-API-Key", "")
+            if not secrets.compare_digest(provided, api_key):
+                return JSONResponse(status_code=401, content={"detail": "无效的 API Key"})
+        else:
+            host = request.client.host if request.client else ""
+            if host not in _LOOPBACK_HOSTS:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "仅允许本机访问，请在 config.yaml 配置 security.api_key"},
+                )
+    return await call_next(request)
+
+
+# CORS — 白名单来自配置 security.cors_origins，默认仅前端开发服务器
+# 注意：CORS 中间件须最后注册（最外层），否则 preflight/错误响应不带 CORS 头
+_cfg = get_config()
+cors_origins = _cfg.get("security.cors_origins") or [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=list(cors_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

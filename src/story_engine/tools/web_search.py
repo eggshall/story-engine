@@ -19,6 +19,8 @@ from urllib.parse import quote_plus
 
 import httpx
 
+from story_engine.utils.url_utils import validate_public_http_url
+
 logger = logging.getLogger("story_engine.search")
 
 
@@ -305,6 +307,12 @@ async def fetch_page_content(url: str, max_chars: int = 2000) -> str:
 
     返回纯文本，最多 max_chars 字符。失败返回空字符串。
     """
+    # SSRF 防护：仅允许 http/https 公网地址
+    try:
+        validate_public_http_url(url)
+    except ValueError:
+        logger.warning("内容提取: 非法 URL 被拒绝: %s", url[:100])
+        return ""
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(connect=5, read=8, write=5, pool=5),

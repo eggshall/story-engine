@@ -76,6 +76,19 @@ class TestGetSettings:
         assert settings["max_tokens"] == 4096
 
 
+class TestSystemPaths:
+    """GET /api/system/paths — 仅返回路径建议，不泄露主机信息"""
+
+    def test_returns_only_suggested(self):
+        resp = client.get("/api/system/paths")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert "suggested" in data
+        assert "windows_user" not in data
+        assert "mounts" not in data
+        assert "home" not in data
+
+
 class TestUpdateSettings:
     """POST /api/settings — 保存默认写作参数"""
 

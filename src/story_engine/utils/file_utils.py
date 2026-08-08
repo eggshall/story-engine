@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 
 def read_text(path: Path) -> Optional[str]:
@@ -22,6 +23,30 @@ def write_text(path: Path, content: str) -> bool:
         return True
     except OSError:
         return False
+
+
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
+def resolve_within(root: Path, user_path: Union[str, Path]) -> Path:
+    """将用户提供的路径解析为 root 之下的绝对路径，防目录穿越。
+
+    拒绝：空值、绝对路径、Windows 盘符路径、含 `..` 的越界路径。
+    解析（resolve）后再次确认仍在 root 之内，否则抛 ValueError。
+    """
+    raw = str(user_path)
+    if not raw.strip():
+        raise ValueError("路径不能为空")
+    if _WINDOWS_DRIVE_RE.match(raw):
+        raise ValueError(f"非法路径: {raw!r}")
+    p = Path(raw)
+    if p.is_absolute():
+        raise ValueError(f"不允许绝对路径: {raw!r}")
+    root_resolved = root.resolve()
+    resolved = (root / p).resolve()
+    if resolved != root_resolved and root_resolved not in resolved.parents:
+        raise ValueError(f"路径越界: {raw!r}")
+    return resolved
 
 
 def list_text_files(dir_path: Path, ext: str = ".txt") -> List[Path]:

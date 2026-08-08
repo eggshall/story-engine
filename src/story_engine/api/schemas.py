@@ -84,12 +84,11 @@ class ExportRequest(BaseModel):
 # ── 响应 ──────────────────────────────────────────────
 
 class ModelInfo(BaseModel):
-    """模型信息"""
+    """模型信息（不含 api_key，避免泄漏）"""
     name: str
     provider: str
     model_id: str
     base_url: str = ""
-    api_key: str = ""
     enabled: bool
     temperature: float
     max_tokens: int

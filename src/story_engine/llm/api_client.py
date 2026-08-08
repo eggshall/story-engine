@@ -21,7 +21,9 @@ class OpenAIClient(BaseLLM):
         self.api_key = config.get("api_key", "") or os.environ.get(
             f"{config.get('provider', '').upper()}_API_KEY", ""
         )
-        self.timeout = config.get("timeout", 60)
+        # 统一读取 read_timeout / connect_timeout（兼容旧 timeout 字段）
+        self.read_timeout = config.get("read_timeout") or config.get("timeout", 60)
+        self.connect_timeout = config.get("connect_timeout", 10)
         self._client: Optional[httpx.AsyncClient] = None
 
     def _get_client(self) -> httpx.AsyncClient:
@@ -33,7 +35,12 @@ class OpenAIClient(BaseLLM):
                 headers["Authorization"] = f"Bearer {self.api_key}"
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
-                timeout=self.timeout,
+                timeout=httpx.Timeout(
+                    connect=self.connect_timeout,
+                    read=self.read_timeout,
+                    write=self.connect_timeout,
+                    pool=self.connect_timeout,
+                ),
                 headers=headers,
             )
         return self._client
@@ -114,7 +121,9 @@ class AnthropicClient(BaseLLM):
         super().__init__(config)
         self.base_url = config.get("base_url", "https://api.anthropic.com/v1")
         self.api_key = config.get("api_key", "") or os.environ.get("ANTHROPIC_API_KEY", "")
-        self.timeout = config.get("timeout", 120)
+        # 统一读取 read_timeout / connect_timeout（兼容旧 timeout 字段）
+        self.read_timeout = config.get("read_timeout") or config.get("timeout", 120)
+        self.connect_timeout = config.get("connect_timeout", 10)
         self._client: Optional[httpx.AsyncClient] = None
 
     def _get_client(self) -> httpx.AsyncClient:
@@ -127,7 +136,12 @@ class AnthropicClient(BaseLLM):
                 headers["x-api-key"] = self.api_key
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
-                timeout=self.timeout,
+                timeout=httpx.Timeout(
+                    connect=self.connect_timeout,
+                    read=self.read_timeout,
+                    write=self.connect_timeout,
+                    pool=self.connect_timeout,
+                ),
                 headers=headers,
             )
         return self._client

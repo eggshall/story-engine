@@ -39,10 +39,9 @@ def _list_mounts() -> list:
 
 @router.get("/system/paths")
 async def get_system_paths() -> ApiResponse:
-    """获取系统路径信息"""
+    """获取系统路径建议"""
     windows_user = _detect_windows_user()
     mounts = _list_mounts()
-    home = str(Path.home())
 
     suggested = []
     if windows_user:
@@ -68,12 +67,8 @@ async def get_system_paths() -> ApiResponse:
             "path": "/mnt/e/",
         })
 
-    return ApiResponse(success=True, data={
-        "windows_user": windows_user,
-        "mounts": mounts,
-        "home": home,
-        "suggested": suggested,
-    })
+    # 仅返回路径建议，不暴露 Windows 用户名 / 挂载点 / HOME 等主机信息
+    return ApiResponse(success=True, data={"suggested": suggested})
 
 
 # ── 默认写作参数 ─────────────────────────────

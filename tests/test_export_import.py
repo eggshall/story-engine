@@ -32,8 +32,11 @@ def setup_test_env(monkeypatch):
     monkeypatch.setattr("story_engine.core.config.DEFAULT_CONFIG_PATH", tmp_cfg)
 
     # 创建测试小说
+    import story_engine.api.routes.export as export_mod
     import story_engine.tools.novel_storage as ns
-    monkeypatch.setattr(ns, "NOVELS_ROOT", Path(tempfile.mktemp()))
+    tmp_root = Path(tempfile.mktemp())
+    monkeypatch.setattr(ns, "NOVELS_ROOT", tmp_root)
+    monkeypatch.setattr(export_mod, "NOVELS_ROOT", tmp_root)
     ns.NOVELS_ROOT.mkdir(parents=True, exist_ok=True)
 
     from story_engine.core.models import Chapter, Novel
@@ -56,7 +59,7 @@ def setup_test_env(monkeypatch):
 
     # 重设 API 路由中的全局 router
     monkeypatch.setattr("story_engine.api.routes.generate._router", None)
-    yield
+    yield ns.NOVELS_ROOT
 
 
 client = TestClient(app)
@@ -88,16 +91,26 @@ class TestJsonExport:
         assert exported["chapters"][0]["title"] == "第一章"
         assert exported["chapters"][0]["content"] == "这是第一章内容。"
 
-    def test_export_json_with_output_dir(self):
-        tmp_dir = Path(tempfile.mktemp())
+    def test_export_json_with_output_dir(self, setup_test_env):
+        root = setup_test_env
+        out_dir = root / "custom-exports"
         resp = client.post("/api/export/json", json={
             "novel_id": "test-novel",
-            "output_dir": str(tmp_dir),
+            "output_dir": str(out_dir.relative_to(root)),
         })
         assert resp.status_code == 200
         result = resp.json()["data"]
         # 文件应该在指定目录
-        assert tmp_dir in Path(result["path"]).parents
+        assert out_dir.resolve() in Path(result["path"]).resolve().parents
+
+    @pytest.mark.parametrize("bad", ["/etc", "/mnt/d/evil", "../", "..", "D:\\evil", "../../etc"])
+    def test_export_json_rejects_unsafe_output_dir(self, bad):
+        resp = client.post("/api/export/json", json={
+            "novel_id": "test-novel",
+            "output_dir": bad,
+        })
+        assert resp.status_code == 400
+        assert "detail" in resp.json()
 
     def test_export_json_returns_404_for_nonexistent_novel(self):
         resp = client.post("/api/export/json", json={"novel_id": "non-existent"})
@@ -173,3 +186,15 @@ class TestJsonImport:
         resp = client.post("/api/import/json", json={"json_data": "{not valid json}"})
         assert resp.status_code == 200
         assert resp.json()["success"] is False
+
+    @pytest.mark.parametrize("bad", ["/etc", "../", "D:\\evil", "../../etc"])
+    def test_import_json_rejects_unsafe_restore_path(self, bad):
+        export_resp = client.post("/api/export/json", json={"novel_id": "test-novel"})
+        export_path = export_resp.json()["data"]["path"]
+        json_data = Path(export_path).read_text(encoding="utf-8")
+        resp = client.post("/api/import/json", json={
+            "json_data": json_data,
+            "restore_path": bad,
+            "force": True,
+        })
+        assert resp.status_code == 400

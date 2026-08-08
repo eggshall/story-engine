@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from story_engine.api.schemas import ApiResponse, ModelConfigRequest
 from story_engine.core.config import get_config
+from story_engine.utils.url_utils import validate_public_http_url
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
@@ -100,6 +101,15 @@ async def test_model_connection(name: str) -> ApiResponse:
             data={"status": "error", "message": "未配置 Base URL"},
         )
 
+    # SSRF 防护：仅允许 https 公网地址，或回环地址（本地模型）
+    try:
+        validate_public_http_url(base_url, allow_loopback=True)
+    except ValueError as e:
+        return ApiResponse(
+            success=False,
+            data={"status": "error", "message": str(e)},
+        )
+
     # 根据 provider 选择探测端点
     provider = model.get("provider", "")
     if provider == "ollama" or "11434" in base_url:
@@ -123,8 +133,8 @@ async def test_model_connection(name: str) -> ApiResponse:
                     success=True,
                     data={"status": "error", "message": f"服务端错误 (HTTP {resp.status_code})"},
                 )
-    except Exception as e:
+    except Exception:
         return ApiResponse(
             success=True,
-            data={"status": "error", "message": f"连接失败: {str(e)}"},
+            data={"status": "error", "message": "连接失败"},
         )

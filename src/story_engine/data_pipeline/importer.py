@@ -27,6 +27,15 @@ def _clean_title(name: str) -> str:
     return name or "未命名"
 
 
+def _safe_filename(name: str) -> str:
+    """清洗为安全文件名：拒绝路径分隔符、`..`、控制符。"""
+    s = name.replace("/", "_").replace("\\", "_")
+    s = re.sub(r"[\x00-\x1f]", "", s)
+    if s.strip() in (".", "..") or ".." in s:
+        return ""
+    return s
+
+
 def _detect_and_decode(data: bytes) -> str:
     """尝试 UTF-8 -> GBK 解码。"""
     for enc in ("utf-8", "gbk"):
@@ -120,7 +129,12 @@ def _save_corpus(title: str, raw_texts: List[str], genre: str, author: str) -> D
 
     out_dir = CORPUS_DIR / "imports"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{title}.txt"
+    fname = _safe_filename(title)
+    if not fname:
+        raise ValueError(f"非法书名: {title!r}")
+    out_path = (out_dir / f"{fname}.txt").resolve()
+    if out_path.parent != out_dir.resolve():
+        raise ValueError(f"非法书名: {title!r}")
     out_path.write_text("\n\n".join(paras), encoding="utf-8")
 
     record = {

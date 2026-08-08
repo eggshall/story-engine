@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
@@ -12,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 from story_engine.api.schemas import ApiResponse, ExportRequest, ExportResult, ImportRequest
 from story_engine.core.models import Novel
 from story_engine.tools.novel_storage import NOVELS_ROOT, load_novel, save_novel
+from story_engine.utils.file_utils import resolve_within
 
 logger = logging.getLogger("story_engine.export")
 router = APIRouter(prefix="/api/export", tags=["export"])
@@ -73,7 +73,13 @@ async def export_md(req: ExportRequest) -> ApiResponse:
     data = novel.model_dump()
 
     # 确定输出目录
-    out_dir = Path(req.output_dir) if req.output_dir else (NOVELS_ROOT / novel_id / "exports")
+    if req.output_dir:
+        try:
+            out_dir = resolve_within(NOVELS_ROOT, req.output_dir)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    else:
+        out_dir = NOVELS_ROOT / novel_id / "exports"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     ch_numbers = None if req.export_all else (req.chapter_numbers or None)
@@ -117,7 +123,13 @@ async def export_json(req: ExportRequest) -> ApiResponse:
     data = novel.model_dump()
 
     # 确定输出目录
-    out_dir = Path(req.output_dir) if req.output_dir else (NOVELS_ROOT / novel_id / "exports")
+    if req.output_dir:
+        try:
+            out_dir = resolve_within(NOVELS_ROOT, req.output_dir)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    else:
+        out_dir = NOVELS_ROOT / novel_id / "exports"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # 写入 JSON
@@ -160,7 +172,10 @@ async def import_json(req: ImportRequest) -> ApiResponse:
     novel_id = req.restore_path or data.get("id", "") or title
 
     # 检查是否已存在
-    existing = load_novel(novel_id)
+    try:
+        existing = load_novel(novel_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if existing and not req.force:
         return ApiResponse(
             success=False,
@@ -175,7 +190,10 @@ async def import_json(req: ImportRequest) -> ApiResponse:
             message=f"数据格式错误: {str(e)}",
         )
 
-    save_novel(novel, novel_id=novel_id)
+    try:
+        save_novel(novel, novel_id=novel_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     return ApiResponse(
         success=True,
