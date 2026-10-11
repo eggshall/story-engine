@@ -360,6 +360,44 @@ def delete_novel(novel_id: str) -> bool:
     return True
 
 
+# ── 章节正文备份（N6 评审 P1-1）──────────────────
+#
+# 保存单章是**全量覆盖**（`os.replace` 原子写，旧内容当场消失）。作者用审稿页的
+# "保存为本章正文"覆盖自己写好的章节时，一次误点就不可逆。这里在覆盖前旁路留一份
+# 旧正文副本，成本是一个文本文件，收益是"覆盖了还能捞回来"。
+# 只保留最近 BACKUP_KEEP 份，避免长期写作把目录撑大。
+
+BACKUP_DIRNAME = "backups"
+BACKUP_KEEP = 20
+
+
+def backup_chapter(novel_id: str, chapter_number: int, content: str) -> Optional[Path]:
+    """把即将被覆盖的章节正文留一份副本；内容为空/写失败都返回 None（旁路，不阻断保存）。"""
+    if not content:
+        return None
+    try:
+        d = _novel_dir(novel_id) / BACKUP_DIRNAME
+        d.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        path = d / f"ch_{chapter_number:04d}.{stamp}.md"
+        _atomic_write(path, content)
+        _prune_backups(d, chapter_number)
+        return path
+    except Exception as e:  # noqa: BLE001 —— 备份失败不能连累保存
+        logger.warning("章节备份写入失败（不影响保存）: %s", e)
+        return None
+
+
+def _prune_backups(directory: Path, chapter_number: int) -> None:
+    """同一章只留最近 BACKUP_KEEP 份（文件名带时间戳，字典序即时间序）。"""
+    try:
+        files = sorted(directory.glob(f"ch_{chapter_number:04d}.*.md"))
+        for old in files[:-BACKUP_KEEP]:
+            old.unlink(missing_ok=True)
+    except OSError as e:
+        logger.warning("清理旧备份失败: %s", e)
+
+
 # ── 灵魂记忆 ──────────────────────────────────
 
 

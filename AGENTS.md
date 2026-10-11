@@ -83,6 +83,7 @@ npm run e2e                             # = playwright test --config e2e/playwri
 | **每本小说目录** | 通过 `tools/novel_storage.py::_novel_dir(novel_id)` 取真实目录（支持自定义路径 + 索引），不要自己拼路径。 |
 | **手写件约定（N4b）** | 装配器从小说目录读作者手写的三件：`mainline.md`（全书写法/主线）、`recap.md`（前情，一行一条）、`beats/ch_XXXX.md`（该章节拍，如 `ch_0007.md`）。缺文件不是错误：会出现在注入清单的 `skipped` 里，作者据此知道该补什么。请求里直接传 `beat`/`mainline`/`recap` 文本可覆盖文件。 |
 | **装配器与注入清单** | 上下文一律经 `writer/context_builder.py` 按槽位装配（`Slot(priority=PINNED)` 永不裁剪、数值越大越先裁；两级预算：槽位 `max_tokens` 截断 + 全局 `budget_tokens` 裁整槽）。新增数据源 = 注册 provider + 声明槽位，**不要**在生成函数里手拼 prompt。`context_manifest` 必须与真正注入的文本一一对应，并随 SSE `done` 载荷下发（`/api/generate/chapter/v2`）。 |
+| **校验器（N5）** | A 类校验在 `check/rules.py`：**确定性、不调模型**、每条发现带 `level + location + suggestion`。两条铁律：① 阈值宁松勿紧，**没有基线时返回 `skipped` 而不是猜**（`level` 只表达可执行结论 alert/warn/ok，跳过用 `incomplete`/`skipped_rules`）；② **别把正常中文当套话** —— `polish.AI_PATTERNS` 是给 `DeAIFilter.clean` 的替换表（含"然而，/但是，/在…的…下"），硬告警要用 `check/rules.py::HARD_AI_TELLS`。接口 `POST /api/check/chapter`（`text` 或 `novel_id + chapter_number`），`location` 偏移相对**请求原文**（不要 strip 后返回）。 |
 | **配置** | `core/config.py::_LLMModelConfig` 是白名单：新增配置字段必须同时加进模型，否则会被 `model_dump()` **静默剥离**。 |
 | **配置路径覆盖** | `STORY_CONFIG_PATH=<file>` 覆盖 `core/config.py::DEFAULT_CONFIG_PATH`（浏览器 E2E / 多环境用）。生产环境别设，否则配置静默漂移。 |
 | **前端字段命名** | 后端 `APIModel` 兼容 camelCase/snake_case（`alias_generator=to_camel`）。 |

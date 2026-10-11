@@ -14,6 +14,10 @@
           <el-icon><Edit /></el-icon>
           <span>写作</span>
         </el-menu-item>
+        <el-menu-item index="/review">
+          <el-icon><DocumentChecked /></el-icon>
+          <span>审稿</span>
+        </el-menu-item>
         <el-menu-item index="/characters">
           <el-icon><User /></el-icon>
           <span>角色卡</span>

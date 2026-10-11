@@ -14,6 +14,12 @@ const router = createRouter({
       meta: { title: '写作', icon: 'Edit' },
     },
     {
+      path: '/review',
+      name: 'review',
+      component: () => import('../views/ReviewView.vue'),
+      meta: { title: '审稿', icon: 'DocumentChecked' },
+    },
+    {
       path: '/characters',
       name: 'characters',
       component: () => import('../views/CharactersView.vue'),

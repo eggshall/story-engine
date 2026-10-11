@@ -190,8 +190,22 @@
 | **N3** ✅ | config schema 放行 `thinking`/`task` 字段（含"不被静默剥离"的断言） | N1 |
 | **N4** ✅ | 装配器 v0（拆为 N4a 槽位注册表 `Slot(...)` + `ContextManifest` + 两级预算 / N4b 真实数据源 + `POST /api/generate/chapter/v2` + 注入清单上 done 载荷） | N2/N3 |
 | **N5** ✅ | A 类校验器 5 条 + `api/routes/check.py`（含漂移无基线时返回 ok/skipped 的行为） | N4 |
-| **N6** | 审稿页（路由 + 导航注册 + 三栏 + 带指令重写） | N4/N5 |
+| **N6** ✅ | 审稿页（路由 + 导航注册 + 三栏 + 带指令重写）+ 注入清单落盘 `GET /api/check/manifest` | N4/N5 |
 | **N7** | 章摘要 + SQLite（走 `_novel_dir`）+ 装配接入 + 离线串行队列 | N4 |
+| **N8** | 项目空间：角色卡/世界观**按小说绑定**（全局目录退役）+ 素材库（仅作复制来源） | N6 |
+
+### N8 决策（用户已定，2026-10-11）
+
+- **方案 A：纯每本独立**。角色卡存 `<小说目录>/characters/<角色>.json`、世界观存
+  `<小说目录>/lore/<设定集>.json`（`novel.json` 里的 `characters`/`lorebooks` 字典是真源，
+  目录文件是 human-readable 镜像，沿用 `_write_files` 既有约定）。
+- **全局 `data/characters/`、`data/lore/` 退役**：生成不再注入全局卡（现在是
+  `generate.py` 无条件 `list_cards()` 全部并入当前小说 —— 所有书共用一副卡组）。
+- **素材库 `data/library/{characters,lore}/`**：只用于「另存为素材 / 从素材导入」的**纯复制**，
+  不是共享引用（改素材不影响已导入的书）。
+- 现有全局示例数据（`林晓月`、`天玄大陆`）删除。
+- 背景：前端"角色卡"页当前是**纯内存态**（`stores/characters.ts` 无持久化、无 API），
+  刷新即丢且与生成用的数据不是同一份 —— N8 一并修掉。
 
 ### 9.2 每个节点的固定流程（测试先行，缺一步不算完成）
 

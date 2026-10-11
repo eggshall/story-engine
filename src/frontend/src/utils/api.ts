@@ -203,6 +203,117 @@ export async function createNovel(data: NovelCreateRequest): Promise<NovelDetail
   return res.data?.data || res.data
 }
 
+/** 保存单章正文（作者在审稿页点"保存"时用；也是候选稿落盘的唯一入口） */
+export async function saveChapterContent(
+  novelId: string,
+  chapterNumber: number,
+  content: string,
+  title?: string,
+): Promise<void> {
+  const res = await api.post(`/novel/${novelId}/chapters/${chapterNumber}/save`, {
+    content,
+    ...(title ? { title } : {}),
+  })
+  const body = res.data
+  if (body?.success === false) throw new Error(body.message || '保存失败')
+}
+
+// ── 校验 / 注入清单（N5 + N6）────────────────────
+
+export type CheckLevel = 'alert' | 'warn' | 'ok' | 'skipped'
+
+export interface CheckLocation {
+  start: number
+  end: number
+  paragraph_index?: number | null
+  excerpt?: string
+}
+
+export interface CheckFinding {
+  rule_id: string
+  rule_name: string
+  level: CheckLevel
+  suggestion: string
+  /** 相对**请求原文**的字符区间；相对指标（如对话占比）没有单点可定位 → null */
+  location: CheckLocation | null
+  details: Record<string, any>
+}
+
+export interface CheckReport {
+  /** 只表达可执行结论（alert/warn/ok）—— 规则被跳过不算"这章有问题" */
+  level: 'alert' | 'warn' | 'ok'
+  findings: CheckFinding[]
+  summary: Record<CheckLevel, number>
+  by_rule: Record<string, Record<string, number>>
+  rules_run: string[]
+  /** 有规则因缺基线被跳过（内容没判定过），配合 skipped_rules 提示作者 */
+  incomplete: boolean
+  skipped_rules: string[]
+  baseline_source: string
+  text_length: number
+}
+
+/** 校验一章/一段正文（确定性、不花 token） */
+export async function checkChapter(params: {
+  text?: string
+  novel_id?: string
+  chapter_number?: number
+  profile_id?: string
+  baseline_chapters?: number
+}): Promise<CheckReport> {
+  const res = await api.post('/check/chapter', params, { timeout: 60000 })
+  const body = res.data
+  if (body?.success === false) throw new Error(body.message || '校验失败')
+  return body?.data as CheckReport
+}
+
+/** 读回某章生成时落盘的注入清单（没有记录时 ok=false，不是错误） */
+export async function fetchChapterManifest(
+  novelId: string,
+  chapterNumber: number,
+): Promise<{ ok: boolean; manifest?: any; message?: string }> {
+  const res = await api.get('/check/manifest', {
+    params: { novel_id: novelId, chapter_number: chapterNumber },
+  })
+  const body = res.data
+  if (body?.success === false) return { ok: false, message: body.message }
+  return { ok: true, manifest: body?.data }
+}
+
+/** 装配器版章节生成（N4b）：done 载荷带 `chapter` + `context_manifest`
+ *
+ * `instruction` 非空 = **带指令重写**：后端只回候选稿（`saved=false`），不落盘 ——
+ * 作者看着预览满意了再点保存（覆盖正文不可逆，不能替作者决定）。 */
+export async function* generateChapterV2Stream(
+  params: {
+    novel_id: string
+    chapter_number: number
+    chapter_title?: string
+    model?: string
+    profile_id?: string
+    beat?: string
+    mainline?: string
+    recap?: string
+    instruction?: string
+  },
+  hooks?: StreamHooks,
+): AsyncGenerator<string> {
+  const res = await fetch(apiUrl('/generate/chapter/v2'), {
+    method: 'POST',
+    headers: sseHeaders(),
+    body: JSON.stringify(params),
+  })
+  if (!res.ok) throw new Error(`SSE error: ${res.status}`)
+  yield* readSSE(
+    res,
+    (d) => d.token ?? null,
+    (payload) => {
+      hooks?.onDone?.(payload)
+      return null
+    },
+  )
+}
+
 // ── 生成 ─────────────────────────────────────
 
 export async function* generateOutlineStream(

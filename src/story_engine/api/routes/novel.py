@@ -19,6 +19,7 @@ from story_engine.api.schemas import (
 from story_engine.core.models import Novel
 from story_engine.tools.fixed_tasks import check_name_consistency
 from story_engine.tools.novel_storage import (
+    backup_chapter,
     delete_novel,
     list_novels,
     list_style_profiles,
@@ -218,6 +219,10 @@ def api_save_chapter(novel_id: str, chapter_number: int, req: ChapterSaveRequest
             if req.title is not None:
                 c.title = req.title
             if req.content is not None:
+                # 覆盖前留一份旧正文（N6 评审 P1-1）：覆盖是不可逆的原子写，
+                # 作者点错一次就得能捞回来。只在内容真的变了时才备份。
+                if c.content and c.content != req.content:
+                    backup_chapter(novel_id, chapter_number, c.content)
                 c.content = req.content
             # 字数统一由正文计算（L13.1）
             c.word_count = len(c.content)

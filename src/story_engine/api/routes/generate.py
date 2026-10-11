@@ -264,16 +264,26 @@ async def generate_chapter_v2(req: ChapterV2Request):
     return EventSourceResponse(
         event_stream(
             _stream_chapter_v2(novel, novel_id, req.chapter_number, req.chapter_title, req.model,
-                               style_block, req.beat, req.mainline, req.recap)
+                               style_block, req.beat, req.mainline, req.recap, req.instruction)
         )
     )
 
 
 async def _stream_chapter_v2(novel: Novel, novel_id: str, ch_num: int, title: str, model: str,
-                             style_block: str, beat: str, mainline: str, recap: str):
-    """装配 → 流式生成 → 保存章节 → done 载荷带注入清单（N4b）"""
+                             style_block: str, beat: str, mainline: str, recap: str,
+                             instruction: str = ""):
+    """装配 → 流式生成 → 保存章节 → done 载荷带注入清单（N4b）
+
+    两种模式（N6）：
+    - **生成**（`instruction` 为空）：按节拍写新章，**落盘**，注入清单同时落盘；
+    - **带指令重写**（`instruction` 非空）：拿本章现有正文 + 作者指令重写，**只产出候选稿、绝不落盘**
+      —— 作者在审稿页看着预览满意了，再自己点保存（覆盖正文是不可逆动作，不能由模型替作者决定）。
+    """
     from story_engine.core.models import Chapter
     from story_engine.writer.context_sources import build_novel_builder
+    from story_engine.writer.manifest_store import save_manifest
+
+    rewrite = bool(instruction.strip())
 
     builder = build_novel_builder(
         novel,
@@ -287,7 +297,30 @@ async def _stream_chapter_v2(novel: Novel, novel_id: str, ch_num: int, title: st
     assembled = await anyio.to_thread.run_sync(builder.build, {"novel_id": novel_id,
                                                               "chapter_number": ch_num})
 
-    prompt = f"""请续写小说《{novel.title}》第{ch_num}章{'「' + title + '」' if title else ''}。
+    if rewrite:
+        current = next((c for c in novel.chapters if c.chapter_number == ch_num), None)
+        # 评审 P2-1：「章存在但正文是空的」也不能重写 —— 空 content 的章节是建章接口允许的
+        # 状态，模型拿空正文"重写"只会凭空编一整章。
+        if current is None or not (current.content or "").strip():
+            yield error_payload(f"第{ch_num}章还没有正文，无法按指令重写（先按节拍生成）")
+            return
+        prompt = f"""下面是小说《{novel.title}》第{ch_num}章的现有正文：
+
+【现有正文】
+{current.content}
+
+【作者的修改指令】
+{instruction.strip()}
+
+{assembled.text}
+
+写作要求：
+1. 只按【作者的修改指令】改动，其余情节、人物与文风尽量保持不变
+2. 输出修改后的**完整章节正文**：不要解释、不要道歉、不要只给片段
+3. 每段不超过300字"""
+        max_tokens = 8192
+    else:
+        prompt = f"""请续写小说《{novel.title}》第{ch_num}章{'「' + title + '」' if title else ''}。
 
 {assembled.text}
 
@@ -296,11 +329,13 @@ async def _stream_chapter_v2(novel: Novel, novel_id: str, ch_num: int, title: st
 2. 保持角色性格与文风一致
 3. 每段不超过300字
 4. 章节末尾留悬念"""
+        max_tokens = 8192
+
     logger.info(
-        "章节生成(v2) | novel=%s ch=%s 注入槽位=%s 注入token=%s 预算=%s 裁剪=%s 跳过=%s",
-        novel_id, ch_num, len(assembled.manifest.entries), assembled.manifest.total_tokens,
-        assembled.manifest.budget_tokens, [d.slot_id for d in assembled.manifest.dropped],
-        [s.reason for s in assembled.manifest.skipped],
+        "章节生成(v2) | novel=%s ch=%s mode=%s 注入槽位=%s 注入token=%s 预算=%s 裁剪=%s 跳过=%s",
+        novel_id, ch_num, "rewrite" if rewrite else "generate", len(assembled.manifest.entries),
+        assembled.manifest.total_tokens, assembled.manifest.budget_tokens,
+        [d.slot_id for d in assembled.manifest.dropped], [s.reason for s in assembled.manifest.skipped],
     )
 
     req = LLMRequest(
@@ -310,7 +345,7 @@ async def _stream_chapter_v2(novel: Novel, novel_id: str, ch_num: int, title: st
         task=TASK_GENERATE,
         # 与 /chapter 的 `word_estimate * 2` 不同：v2 的节拍是手写的、没有字数估算，
         # 固定 8192 给够一次章节的余量（装配器已把输入压到预算内，不需要再按大纲缩放）
-        max_tokens=8192,
+        max_tokens=max_tokens,
     )
 
     router = _get_router()
@@ -324,18 +359,35 @@ async def _stream_chapter_v2(novel: Novel, novel_id: str, ch_num: int, title: st
         if hasattr(gen, "aclose"):
             await gen.aclose()
 
+    existing = next((c for c in novel.chapters if c.chapter_number == ch_num), None)
     chapter = Chapter(
         chapter_number=ch_num,
-        title=title or f"第{ch_num}章",
+        title=title or (existing.title if existing else f"第{ch_num}章"),
         content=full_content,
         model_used=model or "default",
         word_count=len(strip_fallback_prefix(full_content)),
     )
+
+    if rewrite:
+        # 候选稿：不 append、不 save —— 作者点保存才落盘。
+        # 注入清单同样不落盘（重写没有"注入了什么"的新记录），故 manifest_persisted 缺省不报。
+        yield done_payload(chapter=chapter.model_dump(exclude_none=True),
+                           context_manifest=assembled.manifest.to_dict(),
+                           rewrite=True, saved=False)
+        return
+
     novel.chapters.append(chapter)
     await anyio.to_thread.run_sync(_save_novel, novel, novel_id)
+    # 注入清单落盘（旁路，写失败只告警）—— N4b 评审待办，N6 承接。
+    # 评审 P1-4：结果必须如实回报给作者，不能让"写盘失败"看起来像"没注入过"。
+    persisted = await anyio.to_thread.run_sync(
+        save_manifest, novel_id, ch_num, assembled.manifest.to_dict()
+    )
 
     yield done_payload(chapter=chapter.model_dump(exclude_none=True),
-                       context_manifest=assembled.manifest.to_dict())
+                       context_manifest=assembled.manifest.to_dict(),
+                       rewrite=False, saved=True,
+                       manifest_persisted=persisted is not None)
 
 
 @router.post("/chat")

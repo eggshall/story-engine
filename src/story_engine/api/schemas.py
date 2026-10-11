@@ -34,6 +34,11 @@ class ChapterV2Request(APIModel):
     beat: str = Field(default="", description="本章节拍（手写；留空则读 beats/ch_XXXX.md）")
     mainline: str = Field(default="", description="主线（手写；留空则读 mainline.md）")
     recap: str = Field(default="", description="前情（手写；留空则读 recap.md）")
+    instruction: str = Field(
+        default="",
+        description="作者的修改指令（N6）。非空 = **带指令重写**：拿本章现有正文按指令重写，"
+                    "只返回候选稿（done 载荷 saved=false），不落盘；作者满意后自行保存。",
+    )
 
 
 class CheckChapterRequest(APIModel):
