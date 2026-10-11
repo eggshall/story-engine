@@ -139,22 +139,30 @@
       </template>
     </div>
 
-    <!-- 右侧：AI 对话面板 / 文风面板 -->
-    <div class="writing-chat">
+    <!-- 右侧：AI 对话面板 / 文风面板（窄窗口可收起，把宽度让给写作区） -->
+    <div class="writing-chat" :class="{ collapsed: chatCollapsed }">
       <div class="right-panel-tabs">
-        <el-radio-group v-model="activeRightPanel" size="small">
+        <el-radio-group v-show="!chatCollapsed" v-model="activeRightPanel" size="small">
           <el-radio-button value="chat">💬 AI</el-radio-button>
           <el-radio-button value="style">🎨 文风</el-radio-button>
         </el-radio-group>
+        <button
+          class="panel-toggle"
+          data-testid="chat-toggle"
+          :title="chatCollapsed ? '展开右侧面板' : '收起右侧面板（把宽度让给正文）'"
+          @click="toggleChatPanel"
+        >{{ chatCollapsed ? '◀ 面板' : '▶' }}</button>
       </div>
-      <AiChatPanel v-show="activeRightPanel === 'chat'" />
-      <StylePanel
-        v-show="activeRightPanel === 'style'"
-        :current-text="selectedTextForAnalysis"
-        @style-selected="onStyleSelected"
-        @analysis-start="onAnalysisStart"
-        @analysis-done="onAnalysisDone"
-      />
+      <template v-if="!chatCollapsed">
+        <AiChatPanel v-show="activeRightPanel === 'chat'" />
+        <StylePanel
+          v-show="activeRightPanel === 'style'"
+          :current-text="selectedTextForAnalysis"
+          @style-selected="onStyleSelected"
+          @analysis-start="onAnalysisStart"
+          @analysis-done="onAnalysisDone"
+        />
+      </template>
     </div>
 
     <!-- 写作进度弹窗 -->
@@ -208,7 +216,37 @@ const activeRightPanel = ref('chat')
 const selectedTextForAnalysis = ref('')
 const selectedStyleId = ref('')
 
+/**
+ * 右侧面板折叠（窄窗口的刚需）。
+ *
+ * 1046px 的窗口下三栏根本装不下：280 侧栏 + 360 面板 = 640，留给正文只剩 140px，
+ * 顶栏那排按钮（约 800px）就被面板盖住/挤出视口，底栏"保存章节/刷新"也被顶到看不见。
+ * 默认策略：窗口 < 1200px 就收起面板，用户手动开/关一次后记住选择（localStorage）。
+ */
+const CHAT_COLLAPSED_KEY = 'story_chat_collapsed'
+const chatCollapsed = ref(false)
+
+function readCollapsedPreference(): boolean | null {
+  if (typeof localStorage === 'undefined') return null
+  const v = localStorage.getItem(CHAT_COLLAPSED_KEY)
+  return v === null ? null : v === '1'
+}
+
+function toggleChatPanel() {
+  chatCollapsed.value = !chatCollapsed.value
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(CHAT_COLLAPSED_KEY, chatCollapsed.value ? '1' : '0')
+  }
+}
+
+const savedCollapsed = readCollapsedPreference()
+chatCollapsed.value = savedCollapsed === null
+  ? (typeof window !== 'undefined' && window.innerWidth < 1200)
+  : savedCollapsed
+
 function toggleRightPanel(panel: string) {
+  // 面板收着的时候点"文风"要顺手展开，否则点了没反应
+  if (chatCollapsed.value) chatCollapsed.value = false
   activeRightPanel.value = activeRightPanel.value === panel ? 'chat' : panel
 }
 
@@ -617,26 +655,30 @@ async function analyzeStyle() {
   display: flex; height: calc(100vh - 40px); gap: 0;
 }
 .writing-sidebar {
-  width: 280px; min-width: 280px;
+  width: 280px; min-width: 280px; flex: 0 0 280px;
   background: var(--el-bg-color);
   border-right: 1px solid var(--el-border-color-light);
   overflow-y: auto;
 }
 .writing-editor {
-  flex: 1; display: flex; flex-direction: column; min-width: 0;
+  /* min-height:0 是必须的：没有它，flex 列里的子项按内容撑高，
+     textarea 的 min-height 会把底栏"保存章节/刷新"顶到视口外面（实测 y=1029 > 视口 700） */
+  flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0;
 }
 
 /* Top Bar */
 .editor-topbar {
   display: flex; justify-content: space-between; align-items: center;
+  /* 允许换行：这排按钮约 800px，窄窗口下不换行就会溢出到 AI 面板底下 / 视口外 */
+  flex-wrap: wrap; row-gap: 8px;
   padding: 12px 24px; border-bottom: 1px solid var(--el-border-color-light);
   background: var(--el-bg-color);
 }
-.topbar-left { display: flex; align-items: center; gap: 12px; }
+.topbar-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
 .novel-title { margin: 0; font-size: 17px; font-weight: 700; }
 .novel-tag { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--el-color-primary-light-9); color: var(--el-color-primary); }
 .novel-stats { font-size: 12px; color: var(--el-text-color-secondary); }
-.topbar-right { display: flex; align-items: center; gap: 8px; }
+.topbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; row-gap: 8px; }
 
 /* Empty state */
 .editor-empty-state {
@@ -649,7 +691,7 @@ async function analyzeStyle() {
 .empty-hint { font-size: 13px; color: var(--el-text-color-placeholder); }
 
 /* Editor */
-.editor-area { flex: 1; display: flex; flex-direction: column; padding: 16px 24px; overflow: hidden; }
+.editor-area { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 16px 24px; overflow: hidden; }
 .editor-chapter-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--el-text-color-placeholder); font-size: 14px; }
 .editor-wrapper { height: 100%; }
 
@@ -661,14 +703,16 @@ async function analyzeStyle() {
 .chapter-title-input :deep(.el-input__inner) { font-size: 20px; font-weight: 600; }
 .word-counter { font-size: 12px; color: var(--el-text-color-secondary); white-space: nowrap; }
 
-.editor-tabs { flex: 1; display: flex; flex-direction: column; }
-.editor-tabs :deep(.el-tabs__content) { flex: 1; overflow: hidden; }
-.editor-tabs :deep(.el-tab-pane) { height: 100%; }
+.editor-tabs { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.editor-tabs :deep(.el-tabs__content) { flex: 1; overflow: hidden; min-height: 0; }
+.editor-tabs :deep(.el-tab-pane) { height: 100%; min-height: 0; }
 .editor-tabs :deep(.el-tabs__header) { margin-bottom: 8px; }
+.editor-tabs :deep(.el-tabs) { display: flex; flex-direction: column; min-height: 0; }
 
-.chapter-editor { height: 100%; }
+.chapter-editor { height: 100%; min-height: 0; }
 .chapter-editor :deep(.el-textarea__inner) {
-  height: 100% !important; min-height: 400px;
+  /* min-height 必须放掉：写死 400px 会把整列撑高，底栏"保存章节/刷新"被顶出视口 */
+  height: 100% !important; min-height: 0;
   font-size: 15px; line-height: 1.9;
   padding: 16px; border: none; resize: vertical;
   font-family: 'Noto Serif SC', 'Source Han Serif SC', 'STSong', serif;
@@ -693,21 +737,33 @@ async function analyzeStyle() {
 /* Footer */
 .editor-footer {
   display: flex; justify-content: space-between; align-items: center;
+  flex-wrap: wrap; row-gap: 6px;
   padding: 8px 0; margin-top: 8px;
   border-top: 1px solid var(--el-border-color-lighter);
 }
 .save-status { font-size: 12px; color: var(--el-text-color-secondary); }
 .save-ok { color: var(--el-color-success); }
-.footer-actions { display: flex; gap: 8px; }
+.footer-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* Right panel tabs */
 .right-panel-tabs {
+  display: flex; align-items: center; justify-content: space-between;
   padding: 8px 12px 0;
-  text-align: center;
 }
+.panel-toggle {
+  border: 1px solid var(--el-border-color); background: transparent; cursor: pointer;
+  border-radius: 4px; font-size: 12px; padding: 2px 8px; color: var(--el-text-color-secondary);
+}
+.panel-toggle:hover { color: var(--el-color-primary); border-color: var(--el-color-primary); }
 
 /* Chat panel */
-.writing-chat { width: 360px; min-width: 360px; display: flex; flex-direction: column; }
+.writing-chat { flex: 0 0 360px; width: 360px; min-width: 0; display: flex; flex-direction: column; }
+/* 收起时只留一条"展开"竖条，宽度全部让给正文 */
+.writing-chat.collapsed { flex: 0 0 52px; width: 52px; border-left: 1px solid var(--el-border-color-light); }
+.writing-chat.collapsed .right-panel-tabs { padding: 8px 6px 0; }
+.writing-chat.collapsed .panel-toggle {
+  writing-mode: vertical-rl; padding: 8px 4px; margin: 0 auto; font-size: 12px;
+}
 
 /* 灵魂记忆提示条 */
 .memory-bar {

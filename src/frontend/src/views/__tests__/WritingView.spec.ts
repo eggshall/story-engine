@@ -340,4 +340,45 @@ describe('WritingView', () => {
       expect(styleBtn.attributes('disabled')).toBeDefined()
     }
   })
+
+  // ─── 右侧面板折叠（窄窗口下按钮被遮挡的根因修复）───
+
+  it('窗口不够宽时默认收起右侧面板，把宽度让给正文', async () => {
+    // happy-dom 的 innerWidth 默认 1024 < 1200 → 应默认收起
+    localStorage.removeItem('story_chat_collapsed')
+    const wrapper = mount(WritingView, { global: { stubs: { ...stubs, ...componentStubs } } })
+    await flushPromises()
+
+    expect(wrapper.find('.writing-chat').classes()).toContain('collapsed')
+  })
+
+  it('右上角开关能展开/收起，并且记住选择', async () => {
+    localStorage.removeItem('story_chat_collapsed')
+    const wrapper = mount(WritingView, { global: { stubs: { ...stubs, ...componentStubs } } })
+    await flushPromises()
+    expect(wrapper.find('.writing-chat').classes()).toContain('collapsed')
+
+    await wrapper.find('[data-testid="chat-toggle"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.writing-chat').classes()).not.toContain('collapsed')
+    expect(localStorage.getItem('story_chat_collapsed')).toBe('0')   // 用户的选择要留着
+  })
+
+  it('点顶栏"文风"时若面板收着，要顺手展开（否则点了没反应）', async () => {
+    localStorage.removeItem('story_chat_collapsed')
+    // 顶栏（含"文风"按钮）只在选中小说后才渲染
+    novelState.currentNovel = { id: 'n1', title: '人类大进步', genre: '科幻', word_count: 0, chapters: [] }
+    novelState.currentChapter = { chapter_number: 1, title: '一', content: '测试内容' }
+    const wrapper = mount(WritingView, { global: { stubs: { ...stubs, ...componentStubs } } })
+    await flushPromises()
+    expect(wrapper.find('.writing-chat').classes()).toContain('collapsed')
+
+    const styleToggle = wrapper.findAll('.el-button-stub').find(b => b.text().includes('文风'))
+    expect(styleToggle, '应能找到顶栏的文风按钮').toBeDefined()
+    await styleToggle!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.writing-chat').classes()).not.toContain('collapsed')
+  })
 })
