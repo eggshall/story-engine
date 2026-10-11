@@ -3,10 +3,41 @@ import axios from 'axios'
 // 后端 API 基础路径
 const BASE_URL = import.meta.env.VITE_API_BASE || '/api'
 
-const api = axios.create({
+/** API Key 来源：localStorage（运行时可改，无需重新构建）> 构建期 VITE_API_KEY */
+export function getApiKey(): string {
+  if (typeof localStorage !== 'undefined') {
+    const stored = localStorage.getItem('story_api_key')
+    if (stored) return stored
+  }
+  return (import.meta.env.VITE_API_KEY as string) || ''
+}
+
+/** 运行时设置 API Key（设置页可调用；空串表示清除） */
+export function setApiKey(key: string): void {
+  if (typeof localStorage === 'undefined') return
+  if (key) localStorage.setItem('story_api_key', key)
+  else localStorage.removeItem('story_api_key')
+}
+
+export const api = axios.create({
   baseURL: BASE_URL,
   timeout: 30000,
 })
+
+// 鉴权头：后端在 security.api_key 已配置时，对 /api/* 强制校验 X-API-Key
+api.interceptors.request.use((config) => {
+  const key = getApiKey()
+  if (key && config.headers) config.headers.set('X-API-Key', key)
+  return config
+})
+
+/** SSE(原生 fetch) 用统一请求头 —— axios 拦截器管不到 fetch */
+export function sseHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const key = getApiKey()
+  if (key) headers['X-API-Key'] = key
+  return headers
+}
 
 /**
  * 通用 SSE 流解析器 — 解析 event/data 格式，逐 token 回传
@@ -145,7 +176,7 @@ export async function* generateOutlineStream(params: {
 }): AsyncGenerator<string> {
   const res = await fetch('/api/generate/outline', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: sseHeaders(),
     body: JSON.stringify(params),
   })
   if (!res.ok) throw new Error(`SSE error: ${res.status}`)
@@ -164,7 +195,7 @@ export async function* generateChapterStream(params: {
 }): AsyncGenerator<string> {
   const res = await fetch('/api/generate/chapter', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: sseHeaders(),
     body: JSON.stringify(params),
   })
   if (!res.ok) throw new Error(`SSE error: ${res.status}`)
@@ -187,7 +218,7 @@ export async function* chatStream(params: {
 }): AsyncGenerator<string> {
   const res = await fetch('/api/generate/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: sseHeaders(),
     body: JSON.stringify(params),
   })
   if (!res.ok) throw new Error(`SSE error: ${res.status}`)
