@@ -175,7 +175,7 @@
 提案名，已废弃；代码注释、AGENTS.md、本计划书均已改齐，避免前端按旧名取值拿到 `undefined`。
 
 **后续待办（N4b 评审 P2）**：`context_manifest` 目前只随 done 载荷下发（刷新页面即丢）。
-N5/N6 把它随章节落盘（旁路文件或 SQLite），让"当时注入了什么"可长期回看。
+**由 N6 承接**：把它随章节落盘（旁路文件或 SQLite），让"当时注入了什么"可长期回看。
 
 ## 9. 开发流程与评审约定（本项目强制，每个节点都必须走完）
 
@@ -189,7 +189,7 @@ N5/N6 把它随章节落盘（旁路文件或 SQLite），让"当时注入了什
 | **N2** ✅ | SSE 单一 `done` + 载荷契约（后端 `sse.py`/`generate.py` + 前端 `readSSE.onDone(payload)`） | N1 |
 | **N3** ✅ | config schema 放行 `thinking`/`task` 字段（含"不被静默剥离"的断言） | N1 |
 | **N4** ✅ | 装配器 v0（拆为 N4a 槽位注册表 `Slot(...)` + `ContextManifest` + 两级预算 / N4b 真实数据源 + `POST /api/generate/chapter/v2` + 注入清单上 done 载荷） | N2/N3 |
-| **N5** | A 类校验器 5 条 + `api/routes/check.py`（含漂移无基线时返回 ok/skipped 的行为） | N4 |
+| **N5** ✅ | A 类校验器 5 条 + `api/routes/check.py`（含漂移无基线时返回 ok/skipped 的行为） | N4 |
 | **N6** | 审稿页（路由 + 导航注册 + 三栏 + 带指令重写） | N4/N5 |
 | **N7** | 章摘要 + SQLite（走 `_novel_dir`）+ 装配接入 + 离线串行队列 | N4 |
 

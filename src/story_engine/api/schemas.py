@@ -36,6 +36,63 @@ class ChapterV2Request(APIModel):
     recap: str = Field(default="", description="前情（手写；留空则读 recap.md）")
 
 
+class CheckChapterRequest(APIModel):
+    """章节校验请求（N5）。
+
+    二选一给正文来源：`text` 直接给文本（作者粘一段就能查），或 `novel_id + chapter_number`
+    从小说目录读取已保存的章节。
+    """
+
+    text: str = Field(default="", description="直接校验的文本（与 novel_id/chapter_number 二选一）")
+    novel_id: str = ""
+    chapter_number: int = Field(default=0, ge=0)
+    profile_id: str = Field(default="", description="风格画像 ID：作为对话占比基线（可选）")
+    baseline_chapters: int = Field(
+        default=0, ge=0, le=20, description="用前 N 章做基线；0 = 自动（该章之前的全部，最多 10 章）"
+    )
+
+
+class CheckLocationPayload(APIModel):
+    """定位：字符区间 + 段落序号 + 摘录（审稿页据此跳转/展示）。"""
+
+    start: int
+    end: int
+    paragraph_index: Optional[int] = None
+    excerpt: str = ""
+
+
+class CheckFindingPayload(APIModel):
+    """一条校验发现：级别 + 定位 + 建议（缺一不可，否则审稿页无法处置）。"""
+
+    rule_id: str
+    rule_name: str
+    level: str = Field(description="alert / warn / ok / skipped")
+    suggestion: str = ""
+    location: Optional[CheckLocationPayload] = None
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CheckReportPayload(APIModel):
+    """校验报告（`/api/check/chapter` 的 data 字段）。
+
+    - `level`：整章**可执行结论**（alert / warn / ok）。规则因缺基线而跳过**不算**问题
+      （评审 P1-5：干净文本不该显示成 skipped）。
+    - `incomplete` / `skipped_rules`：本次有规则没判定（例如无基线）；审稿页应提示"这部分没判定"。
+    - `location` 可能为 null：只有能定位的规则（段长/视角/AI 味/章末钩子）保证非空，
+      相对指标（对话占比）不给定位。
+    """
+
+    level: str
+    findings: List[CheckFindingPayload] = Field(default_factory=list)
+    summary: Dict[str, int] = Field(default_factory=dict)
+    by_rule: Dict[str, Dict[str, int]] = Field(default_factory=dict)
+    incomplete: bool = False
+    skipped_rules: List[str] = Field(default_factory=list)
+    baseline_source: str = "none"
+    text_length: int = 0
+    rules_run: List[str] = Field(default_factory=list)
+
+
 class ChatRequest(APIModel):
     """AI 对话请求"""
     messages: List[Dict[str, str]] = Field(min_length=1, description="消息列表 [role, content]")

@@ -117,10 +117,33 @@ def function_word_ratio(text: str) -> float:
     return round(hits / len(text), 4)
 
 
+def strip_quoted_spans(text: str) -> str:
+    """剥掉引号内的对白（`「」『』“”‘’""''`）。
+
+    用途：视角一致性判定。对白里出现"他/她"是在说**别人**，不构成叙述视角；
+    不剥离会把"第一人称正文 + 一句引用第三人称的对白"误报成视角突跳（N5 评审 P1-1）。
+    """
+    return _QUOTE_SPAN.sub("", text)
+
+
+def pov_counts(text: str, include_objects: bool = True) -> Dict[str, int]:
+    """人称**计数**（第一/第三人称标记词出现次数）—— `pov_ratios` 与视角一致性校验共用。
+
+    `include_objects=False` 时不计入 `它/祂`：第一人称场景里描述物件（"我拿起它"）
+    不代表视角切换（N5 评审 P1-2）。
+    """
+    third_words = _THIRD_PERSON if include_objects else tuple(w for w in _THIRD_PERSON if w not in ("它", "祂"))
+    return {
+        "pov_first_count": sum(text.count(w) for w in _FIRST_PERSON),
+        "pov_third_count": sum(text.count(w) for w in third_words),
+    }
+
+
 def pov_ratios(text: str) -> Dict[str, float]:
     """人称分布 —— 视角漂移（第一人称 ↔ 第三人称）的量化依据。"""
-    first = sum(text.count(w) for w in _FIRST_PERSON)
-    third = sum(text.count(w) for w in _THIRD_PERSON)
+    counts = pov_counts(text)
+    first = counts["pov_first_count"]
+    third = counts["pov_third_count"]
     total = first + third
     if total == 0:
         return {"pov_first_ratio": 0.0, "pov_third_ratio": 0.0}

@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from story_engine import __version__
-from story_engine.api.routes import export, generate, models, novel, research, style, system
+from story_engine.api.routes import check, export, generate, models, novel, research, style, system
 from story_engine.core.config import get_config
 
 # ── 日志配置 ────────────────────────────────
@@ -106,6 +106,7 @@ app.include_router(export.IMPORT_ROUTER)
 app.include_router(research.router)
 app.include_router(system.router)
 app.include_router(style.router)
+app.include_router(check.router)
 
 
 @app.get("/")
