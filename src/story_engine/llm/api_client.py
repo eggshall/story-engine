@@ -10,6 +10,12 @@ import httpx
 
 from story_engine.llm.base import BaseLLM, LLMRequest, LLMResponse, LLMStreamError
 
+# 任务类型 → 思考模式策略（N1 调用契约）
+# 实测（2026-10）：DeepSeek 思考模式默认开启（effort=high），reasoning_tokens 会吃掉 max_tokens
+# （max_tokens=8000 时 content 仍为空字符串，HTTP 却是 200），且思考模式下 temperature 被静默忽略。
+# 因此创作/抽取类任务显式关闭思考，规划类任务保留思考。
+_NO_THINKING_TASKS = {"generate", "extract"}
+
 
 class OpenAIClient(BaseLLM):
     """兼容 OpenAI API 格式的远程客户端（DeepSeek / Qwen / Kimi 等）"""
@@ -55,28 +61,60 @@ class OpenAIClient(BaseLLM):
             pool=self.connect_timeout,
         )
 
-    async def chat(self, request: LLMRequest) -> LLMResponse:
-        client = self._get_client()
-        payload = {
+    def _build_payload(self, request: LLMRequest, stream: bool = False) -> Dict[str, Any]:
+        """按任务类型构建请求体（N1 调用契约）。
+
+        - generate/extract：关闭思考 + 发送 temperature（思考模式下 temperature 无效）
+        - plan：开启思考，且**不**发送 temperature（发了也不生效，避免误导）
+        - 一律不发送 reasoning_effort（与 disabled 共存会被 API 拒绝）
+        """
+        payload: Dict[str, Any] = {
             "model": self.model_id,
             "messages": self.format_messages(request.system_prompt, request.messages),
-            "temperature": request.temperature,
             "max_tokens": request.max_tokens,
         }
+        if request.task in _NO_THINKING_TASKS:
+            payload["thinking"] = {"type": "disabled"}
+            payload["temperature"] = request.temperature
+        else:
+            payload["thinking"] = {"type": "enabled"}
         if request.stop:
             payload["stop"] = request.stop
+        if stream:
+            payload["stream"] = True
+        return payload
+
+    async def chat(self, request: LLMRequest) -> LLMResponse:
+        client = self._get_client()
+        payload = self._build_payload(request)
 
         try:
             resp = await client.post("/chat/completions", json=payload, timeout=self._timeout(request))
             resp.raise_for_status()
             data = resp.json()
             msg = data["choices"][0].get("message", {})
-            # 推理模型 content 可能为空/缺失，回退 reasoning_content
-            content = msg.get("content") or msg.get("reasoning_content", "") or ""
             usage = data.get("usage")
+            model = data.get("model", self.model_id)
+            content = (msg.get("content") or "").strip()
+            if not content:
+                # 不再回退 reasoning_content：推理过程不是交付内容。
+                # 实测该情形=思考模式耗尽 max_tokens，必须显式失败而不是静默返回空。
+                reasoning = (msg.get("reasoning_content") or "").strip()
+                hint = (
+                    "；reasoning_tokens 占满了 max_tokens（思考模式），请提高 max_tokens 或使用 task='generate'"
+                    if reasoning
+                    else ""
+                )
+                return LLMResponse(
+                    success=False,
+                    provider=self.provider,
+                    model=model,
+                    usage=usage,
+                    error=f"模型返回空产出（content 为空）{hint}",
+                )
             return LLMResponse(
                 content=content,
-                model=data.get("model", self.model_id),
+                model=model,
                 provider=self.provider,
                 usage=usage,
             )
@@ -92,13 +130,8 @@ class OpenAIClient(BaseLLM):
 
     async def chat_stream(self, request: LLMRequest) -> AsyncGenerator[str, None]:
         client = self._get_client()
-        payload = {
-            "model": self.model_id,
-            "messages": self.format_messages(request.system_prompt, request.messages),
-            "temperature": request.temperature,
-            "max_tokens": request.max_tokens,
-            "stream": True,
-        }
+        payload = self._build_payload(request, stream=True)
+        yielded_chars = 0
         try:
             async with client.stream("POST", "/chat/completions", json=payload,
                                      timeout=self._timeout(request)) as resp:
@@ -115,11 +148,22 @@ class OpenAIClient(BaseLLM):
                             delta = chunk.get("choices", [{}])[0].get("delta", {})
                             content = delta.get("content", "")
                             if content:
+                                yielded_chars += len(content)
                                 yield content
                         except json.JSONDecodeError:
                             continue
+        except LLMStreamError:
+            raise
         except Exception as e:
             raise LLMStreamError(str(e)) from e
+
+        if yielded_chars == 0:
+            # 流式零 token：思考模式耗尽预算或上游异常，必须显式失败
+            # （否则 router 会把空流当成功，SSE 层还会发 done，前端拿到空正文）
+            raise LLMStreamError(
+                "模型返回空产出（流式零 token）：reasoning_tokens 可能占满了 max_tokens，"
+                "请提高 max_tokens 或使用 task='generate' 关闭思考"
+            )
 
     async def close(self) -> None:
         if self._client:

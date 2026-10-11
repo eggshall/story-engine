@@ -126,6 +126,8 @@ class WritingEngine:
             system_prompt=DEFAULT_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
+            # 产出是 JSON 设定/大纲（结构化抽取）→ 关闭思考，避免 reasoning 吃掉 max_tokens 导致空产出
+            task="extract",
         )
 
         response = await self.router.chat(request, model_name=model or None)

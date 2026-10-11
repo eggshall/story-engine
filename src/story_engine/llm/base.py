@@ -16,6 +16,10 @@ class LLMRequest:
     max_tokens: int = 4096
     stop: Optional[List[str]] = None
     timeout: Optional[float] = None  # 请求级超时覆盖（秒），None 时用客户端配置
+    # 任务类型 —— 决定思考模式与温度语义（见 llm/api_client.py 的调用契约）:
+    #   generate 创作 / extract 结构化抽取 → 关闭思考 + 显式 temperature
+    #   plan 规划推理 → 开启思考（此时 temperature 无意义，不发送）
+    task: str = "generate"
 
 
 @dataclass

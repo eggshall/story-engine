@@ -85,9 +85,16 @@ class TestTimeoutInjection:
         assert client_mock.stream.call_args.kwargs["timeout"].read == 5
 
 
-class TestReasoningFallback:
-    def test_chat_content_falls_back_to_reasoning(self, openai_client):
-        """content 为空时回退 reasoning_content（推理模型）"""
+class TestReasoningNoLongerFallsBack:
+    """N1 起语义变更（见 tests/test_llm/test_thinking_contract.py）。
+
+    旧行为：content 为空时回退 reasoning_content 并判成功。
+    新行为：推理内容不是交付正文 → content 为空即 `success=False` 且 error 含"空产出"。
+    理由：实测思考模式下 reasoning_tokens 占满 max_tokens、content 为空但 HTTP 200，
+    旧语义会把"静默空正文"当成成功推给前端。
+    """
+
+    def test_chat_content_none_is_failure(self, openai_client):
         client_mock = MagicMock()
         resp = MagicMock()
         resp.status_code = 200
@@ -100,11 +107,10 @@ class TestReasoningFallback:
         openai_client._client = client_mock
 
         result = asyncio.run(openai_client.chat(LLMRequest(messages=[{"role": "user", "content": "hi"}])))
-        assert result.success is True
-        assert result.content == "思考过程"
+        assert result.success is False
+        assert "空产出" in result.error
 
-    def test_chat_content_empty_string(self, openai_client):
-        """content 为空串时同样回退 reasoning"""
+    def test_chat_content_empty_string_is_failure(self, openai_client):
         client_mock = MagicMock()
         resp = MagicMock()
         resp.status_code = 200
@@ -117,7 +123,8 @@ class TestReasoningFallback:
         openai_client._client = client_mock
 
         result = asyncio.run(openai_client.chat(LLMRequest(messages=[])))
-        assert result.content == "推理内容"
+        assert result.success is False
+        assert "空产出" in result.error
 
 
 class TestPayload:

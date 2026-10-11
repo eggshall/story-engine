@@ -41,6 +41,9 @@ packages = ["src/story_engine"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "live: 需要真实远程 API 的调用（默认跳过；设置 STORY_LIVE=1 才跑）",
+]
 addopts = "--cov=story_engine --cov-report=term-missing --cov-fail-under=75"
 filterwarnings = [
     # starlette 1.3.x 在未安装 httpx2 时对 testclient 的迁移提示，暂时无法消除（httpx2 尚未发布）

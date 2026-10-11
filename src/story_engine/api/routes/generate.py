@@ -188,6 +188,9 @@ async def _stream_chapter(engine, ch_num: int, title: str, model: str, novel: No
         system_prompt="你是一位专业的网络小说作家。",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.8,
+        # max_tokens 直接由字数估算而来（word_estimate*2），思考模式会整体吃掉这个预算 →
+        # content 空、HTTP 200、前端"静默空正文"。故正文生成必须显式关闭思考（task='generate'）。
+        task="generate",
         max_tokens=outline.word_estimate * 2,
     )
 
