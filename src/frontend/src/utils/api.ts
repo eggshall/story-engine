@@ -39,6 +39,11 @@ export function sseHeaders(): Record<string, string> {
   return headers
 }
 
+/** 拼 SSE 的绝对/相对 URL —— 与 axios 的 BASE_URL 保持同一来源（避免 REST/SSE 不一致） */
+export function apiUrl(path: string): string {
+  return `${BASE_URL}${path}`
+}
+
 /**
  * 通用 SSE 流解析器 — 解析 event/data 格式，逐 token 回传
  * 后端格式: event: token / event: done / event: error
@@ -174,7 +179,7 @@ export async function* generateOutlineStream(params: {
   chapter_title?: string
   model?: string
 }): AsyncGenerator<string> {
-  const res = await fetch('/api/generate/outline', {
+  const res = await fetch(apiUrl('/generate/outline'), {
     method: 'POST',
     headers: sseHeaders(),
     body: JSON.stringify(params),
@@ -193,7 +198,7 @@ export async function* generateChapterStream(params: {
   chapter_title?: string
   model?: string
 }): AsyncGenerator<string> {
-  const res = await fetch('/api/generate/chapter', {
+  const res = await fetch(apiUrl('/generate/chapter'), {
     method: 'POST',
     headers: sseHeaders(),
     body: JSON.stringify(params),
@@ -216,7 +221,7 @@ export async function* chatStream(params: {
   stylePrompt?: string
   profileId?: string
 }): AsyncGenerator<string> {
-  const res = await fetch('/api/generate/chat', {
+  const res = await fetch(apiUrl('/generate/chat'), {
     method: 'POST',
     headers: sseHeaders(),
     body: JSON.stringify(params),

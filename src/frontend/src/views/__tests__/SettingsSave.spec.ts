@@ -10,12 +10,16 @@ describe('Settings API functions', () => {
       data: { data: { default_model: 'pro-model', temperature: 0.7, max_tokens: 4096 } },
     })
     vi.doMock('../../utils/api', () => ({
+      getApiKey: () => '',
+      setApiKey: () => undefined,
       default: {
         get: mockGet,
         post: vi.fn(),
         patch: vi.fn(),
         defaults: { baseURL: '/api' },
         interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
+      getApiKey: () => '',
+      setApiKey: vi.fn(),
       },
       fetchSettings: async () => {
         const res = await mockGet('/settings')
@@ -33,12 +37,16 @@ describe('Settings API functions', () => {
       data: { data: { default_model: 'new-model', temperature: 0.5, max_tokens: 8192 } },
     })
     vi.doMock('../../utils/api', () => ({
+      getApiKey: () => '',
+      setApiKey: () => undefined,
       default: {
         post: mockPost,
         get: vi.fn(),
         patch: vi.fn(),
         defaults: { baseURL: '/api' },
         interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
+      getApiKey: () => '',
+      setApiKey: vi.fn(),
       },
       saveSettings: async (params: any) => {
         const res = await mockPost('/settings', params)
@@ -84,10 +92,14 @@ describe('SettingsView - Writing params', () => {
     // 这里统一用 vi.doMock 重注册完整 mock（含 fetchModels），避免 SettingsView
     // onMounted → loadModels() 走到无 fetchModels 的 mock 而报 unhandled error。
     vi.doMock('../../utils/api', () => ({
+      getApiKey: () => '',
+      setApiKey: () => undefined,
       default: {
         get: vi.fn(), post: vi.fn(), patch: vi.fn(),
         defaults: { baseURL: '/api' },
         interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
+      getApiKey: () => '',
+      setApiKey: vi.fn(),
       },
       fetchModels: vi.fn().mockResolvedValue([]),
       fetchSettings: vi.fn().mockResolvedValue({

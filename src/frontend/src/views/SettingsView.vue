@@ -3,6 +3,39 @@
   <div class="settings-view">
     <h3>设置</h3>
 
+    <el-card class="settings-card" shadow="never">
+      <template #header>
+        <div class="model-header">
+          <div class="model-title">
+            <span class="model-name">后端访问鉴权</span>
+            <span class="model-badge">X-API-Key</span>
+          </div>
+        </div>
+      </template>
+      <el-form label-position="top" size="small">
+        <el-form-item label="API Key（对应后端 config.yaml 的 security.api_key）">
+          <el-input
+            v-model="apiKeyInput"
+            type="password"
+            show-password
+            clearable
+            placeholder="未配置时后端会以 401 拒绝所有 /api 请求"
+          />
+        </el-form-item>
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          title="保存在浏览器 localStorage（本机使用）。生产环境建议在此录入，而不是把密钥打进构建产物。"
+          style="margin-bottom: 8px"
+        />
+        <el-form-item>
+          <el-button type="primary" size="small" @click="saveApiKeyHandler">保存</el-button>
+          <el-button size="small" @click="clearApiKeyHandler">清除</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
     <el-card
       v-for="model in settings.models"
       :key="model.name"
@@ -265,13 +298,28 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowDownBold, ArrowUpBold } from '@element-plus/icons-vue'
 import { useSettingsStore } from '../stores/settings'
-import { fetchNovels, exportJson, importJson, fetchSettings, saveSettings } from '../utils/api'
+import { fetchNovels, exportJson, importJson, fetchSettings, saveSettings, getApiKey, setApiKey } from '../utils/api'
 
 const settings = useSettingsStore()
 const temperature = ref(0.7)
 const maxTokens = ref(4096)
 const savingWritingParams = ref(false)
 const writingParamsSaved = ref(false)
+
+// ── 后端访问鉴权（X-API-Key）：运行时录入入口（N0 评审 P1-1）──
+const apiKeyInput = ref(getApiKey())
+
+function saveApiKeyHandler() {
+  const key = apiKeyInput.value.trim()
+  setApiKey(key)
+  ElMessage.success(key ? '已保存访问密钥，后续请求将携带 X-API-Key' : '已清空访问密钥')
+}
+
+function clearApiKeyHandler() {
+  apiKeyInput.value = ''
+  setApiKey('')
+  ElMessage.info('已清除访问密钥')
+}
 
 // Per-model editing state
 const editing = reactive<Record<string, boolean>>({})

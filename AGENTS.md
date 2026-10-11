@@ -74,6 +74,7 @@ cd src/frontend && npx playwright test --config e2e/playwright.config.ts
 | 约定 | 说明 |
 |---|---|
 | **鉴权头** | 后端在 `security.api_key` 已配置时对 `/api/*` 强制校验 `X-API-Key`（`/api/health` 除外）。前端所有请求必须带头：REST 走 `utils/api.ts` 的 axios 实例（拦截器注入），SSE 用 `sseHeaders()`。**新增任何请求路径都要带**。 |
+| **密钥来源与安全** | 前端密钥优先级：`localStorage['story_api_key']`（设置页运行时录入，`setApiKey()`）> 构建期 `import.meta.env.VITE_API_KEY`。生产部署**优先用设置页录入**——构建期注入会把密钥打进 `dist` bundle；localStorage 明文仅适用于本机单用户场景。切换密钥无需刷新，但已加载的数据需重新触发请求。 |
 | **SSE 契约** | 事件为 `token` / `done` / `error`；`EventSourceResponse` 只接受 dict（不要自己拼 `data:` 字符串）。前端 `readSSE` 逐 token 解析。 |
 | **模型调用** | 创作/抽取类走 `thinking: disabled` + 显式 temperature（思考模式下 temperature 会被静默忽略）；`content` 为空视为失败，不能当成功。 |
 | **每本小说目录** | 通过 `tools/novel_storage.py::_novel_dir(novel_id)` 取真实目录（支持自定义路径 + 索引），不要自己拼路径。 |

@@ -14,9 +14,13 @@ vi.mock('../../utils/api', () => {
     patch: vi.fn(),
     defaults: { baseURL: '/api' },
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
+    getApiKey: () => '',
+    setApiKey: vi.fn(),
   }
   return {
     default: api,
+    getApiKey: () => '',
+    setApiKey: () => undefined,
     fetchModels: (...args: any[]) => mockFetchModels(...args),
     updateModel: (...args: any[]) => mockUpdateModel(...args),
     testModel: (...args: any[]) => mockTestModel(...args),
@@ -124,7 +128,9 @@ describe('SettingsView - Model Management', () => {
 
     const headers = wrapper.findAll('.el-card__header')
     expect(headers.length).toBeGreaterThanOrEqual(2)
-    expect(headers[0].text()).toContain('pro-model')
+    // 设置页顶部新增了「后端访问鉴权」卡片（N0），所以按内容匹配而不是按序号
+    const headerTexts = headers.map((h) => h.text())
+    expect(headerTexts.some((t) => t.includes('pro-model'))).toBe(true)
   })
 
   it('store updateModel method works', async () => {

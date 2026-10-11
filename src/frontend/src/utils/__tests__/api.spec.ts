@@ -1,24 +1,33 @@
 /**
- * N0 节点测试：前端鉴权头打通
+ * N0 节点测试：前端鉴权头（REST + fetch 调用点）
  *
- * 背景：后端 `main.py` 中间件在 `security.api_key` 已配置时，对 `/api/*` 强制校验 `X-API-Key`；
- * 而前端此前一个请求头都没带 → 浏览器全部请求 401。本测试先写（RED），再实现（GREEN）。
+ * 评审修复项（N0-REVIEW §B-2 / P2-4）：
+ * - `afterEach` 复位 adapter，避免泄漏到其它用例
+ * - 断言统一用大小写归一化的取值函数
+ * - SSE 的三个函数都覆盖（原实现只测了 generateChapterStream）
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { api, fetchModels, generateChapterStream } from '../api'
+import {
+  api,
+  chatStream,
+  fetchModels,
+  generateChapterStream,
+  generateOutlineStream,
+} from '../api'
 
 const KEY = 'test-key-123'
 
-/** axios 的 headers 可能是普通对象或 AxiosHeaders（大小写归一），统一取值 */
-function headerValue(headers: unknown, name: string): unknown {
-  if (!headers) return undefined
-  const h = headers as Record<string, unknown> & { get?: (n: string) => unknown }
-  if (typeof h.get === 'function') {
-    const v = h.get(name)
-    if (v !== undefined && v !== null) return v
+/** axios 的 headers 可能是普通对象 / AxiosHeaders / Headers，统一大小写归一取值 */
+function headerOf(headers: unknown, name: string): string | null {
+  if (!headers) return null
+  const anyH = headers as Record<string, unknown> & { get?: (n: string) => unknown }
+  if (typeof anyH.get === 'function') {
+    const v = anyH.get(name)
+    if (v !== undefined && v !== null) return String(v)
   }
-  return h[name] ?? h[name.toLowerCase()]
+  const direct = anyH[name] ?? anyH[name.toLowerCase()]
+  return direct === undefined || direct === null ? null : String(direct)
 }
 
 function mockAdapter() {
@@ -31,46 +40,86 @@ function mockAdapter() {
   return captured
 }
 
-describe('N0 · 前端鉴权头', () => {
+describe('N0 · 前端鉴权头（REST 路径，经请求拦截器）', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.restoreAllMocks()
   })
 
-  it('REST 请求：配置了 Key 时必须带 X-API-Key', async () => {
+  afterEach(() => {
+    // 复位 adapter，避免影响其它用例（评审 P2-4）
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (api.defaults as any).adapter
+    vi.unstubAllGlobals()
+  })
+
+  it('配置了 Key 时必须带 X-API-Key', async () => {
     localStorage.setItem('story_api_key', KEY)
     const captured = mockAdapter()
 
     await fetchModels()
 
-    expect(headerValue(captured.headers, 'X-API-Key')).toBe(KEY)
+    expect(headerOf(captured.headers, 'X-API-Key')).toBe(KEY)
   })
 
-  it('REST 请求：未配置 Key 时不带该头（不发送空 header）', async () => {
+  it('未配置 Key 时不带该头（不发送空 header）', async () => {
     const captured = mockAdapter()
 
     await fetchModels()
 
-    expect(headerValue(captured.headers, 'X-API-Key')).toBeUndefined()
+    expect(headerOf(captured.headers, 'X-API-Key')).toBeNull()
+  })
+})
+
+describe('N0 · 访问密钥存取（设置页运行时录入的地基）', () => {
+  beforeEach(() => {
+    localStorage.clear()
   })
 
-  it('SSE(fetch) 请求：配置了 Key 时必须带 X-API-Key', async () => {
+  it('setApiKey 写入 localStorage，getApiKey 读回；空串表示清除', async () => {
+    const { getApiKey, setApiKey } = await import('../api')
+
+    setApiKey('abc-123')
+    expect(localStorage.getItem('story_api_key')).toBe('abc-123')
+    expect(getApiKey()).toBe('abc-123')
+
+    setApiKey('')
+    expect(localStorage.getItem('story_api_key')).toBeNull()
+  })
+})
+
+describe('N0 · 前端鉴权头（SSE 调用点，含请求头与 URL 来源）', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it.each([
+    ['generateOutlineStream', generateOutlineStream, '/api/generate/outline'],
+    ['generateChapterStream', generateChapterStream, '/api/generate/chapter'],
+    ['chatStream', chatStream, '/api/generate/chat'],
+  ])('%s：配置了 Key 时 fetch 带 X-API-Key，且 URL 来自统一的 BASE_URL', async (_n, fn, path) => {
     localStorage.setItem('story_api_key', KEY)
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, body: null })
     vi.stubGlobal('fetch', fetchMock)
 
-    // 读取一次触发 fetch；body 为 null 会抛错，属预期，忽略即可
-    await generateChapterStream({ chapter_number: 1 })
+    // body 为 null 会在 readSSE 抛错，属预期（这里只验请求侧）
+    await fn({ chapter_number: 1, messages: [] })
       .next()
       .catch(() => undefined)
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    const [, init] = fetchMock.mock.calls[0]
-    expect((init.headers as Record<string, string>)['X-API-Key']).toBe(KEY)
-    expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json')
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe(path)
+    expect(headerOf(init.headers, 'X-API-Key')).toBe(KEY)
+    expect(headerOf(init.headers, 'Content-Type')).toBe('application/json')
   })
 
-  it('SSE(fetch) 请求：未配置 Key 时不带该头', async () => {
+  it('未配置 Key 时不带该头', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, body: null })
     vi.stubGlobal('fetch', fetchMock)
 
@@ -79,6 +128,6 @@ describe('N0 · 前端鉴权头', () => {
       .catch(() => undefined)
 
     const [, init] = fetchMock.mock.calls[0]
-    expect((init.headers as Record<string, string>)['X-API-Key']).toBeUndefined()
+    expect(headerOf(init.headers, 'X-API-Key')).toBeNull()
   })
 })
