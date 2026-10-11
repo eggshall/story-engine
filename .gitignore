@@ -28,3 +28,7 @@ Thumbs.db
 .idea/
 .vscode/
 .coverage
+
+# E2E / 测试产物
+src/frontend/test-results/
+src/frontend/playwright-report/

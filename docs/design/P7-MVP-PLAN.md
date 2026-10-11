@@ -170,5 +170,46 @@
 其余随期间处理的评审项：token 计数（P0-5）、覆盖率门禁（每模块随码交付测试）、漂移基线来源
 （2.2 明确基线来自风格画像或前序章节，无基线时返回 `ok`/`skipped` 而非误报 alert）。
 
-> 已核实为真的三条（我独立复看代码确认）：前端无 `X-API-Key`（现网 401）、config 白名单静默吞字段、
-> 既有测试断言"空 content 回退 reasoning"。这三条不修，M1 会"看起来做完其实没生效"。
+## 9. 开发流程与评审约定（本项目强制，每个节点都必须走完）
+
+### 9.1 节点划分（每个节点 = 一次可独立评审的交付）
+
+| 节点 | 内容 | 依赖 |
+|---|---|---|
+| **N0** | 前端鉴权打通（`X-API-Key` 注入 + 断言测试 + 真实浏览器 E2E）—— 修掉现网 401 | — |
+| **N0.5** | 工程结构整理：`e2e/` 上移到项目根、目录职责与命名统一、清理无用产物、维护 `AGENTS.md` | N0 |
+| **N1** | 调用契约（`thinking`/显式温度/空产出守卫）+ 既有冲突测试改写 | N0 |
+| **N2** | SSE 单一 `done` + 载荷契约（后端 `sse.py`/`generate.py` + 前端 `readSSE.onDone(payload)`） | N1 |
+| **N3** | config schema 放行 `thinking`/`task` 字段（含"不被静默剥离"的断言） | N1 |
+| **N4** | 装配器 v0：槽位注册表 `Slot(slot_id, priority, provider, renderer)` + `ContextManifest` + 预算裁剪 | N2/N3 |
+| **N5** | A 类校验器 5 条 + `api/routes/check.py`（含漂移无基线时返回 ok/skipped 的行为） | N4 |
+| **N6** | 审稿页（路由 + 导航注册 + 三栏 + 带指令重写） | N4/N5 |
+| **N7** | 章摘要 + SQLite（走 `_novel_dir`）+ 装配接入 + 离线串行队列 | N4 |
+
+### 9.2 每个节点的固定流程（测试先行，缺一步不算完成）
+
+```
+① RED    先写会失败的测试（后端 pytest / 前端 vitest），确认它真的红
+② GREEN  最小实现让它变绿；不顺手重构无关代码
+③ REFACTOR 清理，保持 pytest + vitest + ruff + mypy + vite build 全绿
+④ E2E    跑该节点的端到端验证（见 9.3），把实际输出留痕
+⑤ 评审   交 opencode 评审（opencode run --agent requirements "<评审提示>"），
+         要求它指出：任务/实现是否漏项、测试是否"看起来测了其实没测"、是否引入回归
+⑥ 修复   按评审结论修复（治本，不改测试掩盖），再跑全量回归
+⑦ 提交   一次节点一次提交（commit message 写明节点号 + 验收结果 + 评审结论）
+```
+
+### 9.3 E2E 要求（"必要"的判定）
+
+| 层级 | 现状 | 本项目的 E2E 要求 |
+|---|---|---|
+| 后端 API E2E | 已有 `TestClient` 用法与 `tests/test_writer/test_sse.py` | **必须**：真实 app + 真实 HTTP（含 `X-API-Key`）走完整链路；SSE 要断言"逐 token + 单一 done + done 载荷字段"；模型调用用本地假 OpenAI 兼容 server 或标 `@pytest.mark.live` |
+| 前端交互 E2E | vitest + happy-dom（无 Playwright） | 关键路径**必须有真实浏览器冒烟**：起后端 + 起 vite，用浏览器驱动打开页面、点按钮、断言页面出现预期内容（产物截图/日志留痕）。纯组件测试不算 E2E |
+| 模型真实调用 | 无 | 涉及调用契约的节点（N1）必须有一次真实远程调用验证（非空正文 + `reasoning_tokens=0`），标 `live` |
+
+判定原则：**改了跨进程/跨层的行为（HTTP、SSE、鉴权、文件落盘）就必须有 E2E**；纯内部函数（如校验规则）用单测即可。
+
+### 9.4 评审记录归档
+
+每次 opencode 评审的报告归档为 `docs/design/reviews/N<节点号>-REVIEW.md`，结论（可开工/需修复）+ 修复情况
+写在对应的 commit message 里，便于回溯。
