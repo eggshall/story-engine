@@ -28,7 +28,8 @@ Thumbs.db
 .idea/
 .vscode/
 .coverage
+coverage.xml
 
-# E2E / 测试产物
-src/frontend/test-results/
-src/frontend/playwright-report/
+# ── 项目级 E2E 产物（Playwright，N0.5 起 e2e/ 在项目根）──
+/e2e/test-results/
+/e2e/playwright-report/

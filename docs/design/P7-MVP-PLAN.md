@@ -177,7 +177,7 @@
 | 节点 | 内容 | 依赖 |
 |---|---|---|
 | **N0** | 前端鉴权打通（`X-API-Key` 注入 + 断言测试 + 真实浏览器 E2E）—— 修掉现网 401 | — |
-| **N0.5** | 工程结构整理：`e2e/` 上移到项目根、目录职责与命名统一、清理无用产物、维护 `AGENTS.md` | N0 |
+| **N0.5** ✅ | 工程结构整理：`e2e/` 上移到项目根（依赖改由根 `package.json` 管理，`npm run e2e`）、清理被跟踪的产物（`coverage.xml`）、更新 `.gitignore` | N0 |
 | **N1** | 调用契约（`thinking`/显式温度/空产出守卫）+ 既有冲突测试改写 | N0 |
 | **N2** | SSE 单一 `done` + 载荷契约（后端 `sse.py`/`generate.py` + 前端 `readSSE.onDone(payload)`） | N1 |
 | **N3** | config schema 放行 `thinking`/`task` 字段（含"不被静默剥离"的断言） | N1 |

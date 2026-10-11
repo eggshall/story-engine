@@ -1,0 +1,12 @@
+{
+  "name": "story-engine-e2e",
+  "private": true,
+  "description": "story-engine 项目级 E2E（Playwright）。后端依赖见 pyproject.toml，前端依赖见 src/frontend/package.json。",
+  "scripts": {
+    "e2e": "playwright test --config e2e/playwright.config.ts",
+    "e2e:stack": "bash scripts/e2e_dev_stack.sh"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0"
+  }
+}
