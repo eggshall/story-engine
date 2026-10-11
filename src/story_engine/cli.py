@@ -54,7 +54,7 @@ def main():
             pass
 
 
-# ── 角色卡管理 ────────────────────────────────────────
+# ── 角色卡管理（N8：按小说绑定）─────────────────────────
 
 @cli.group()
 def character():
@@ -62,12 +62,37 @@ def character():
     pass
 
 
+def _resolve_novel_id(novel_id: str) -> str:
+    """把命令行给的 novel_id 解析成真实 id；没给且只有一本时就用那本。
+
+    N8 起角色卡/世界观属于某一本小说（不再是全局目录），所以命令必须知道是哪本书。
+    """
+    from story_engine.tools.novel_storage import list_novels
+
+    if novel_id:
+        return novel_id
+    novels = list_novels()
+    if len(novels) == 1:
+        return str(novels[0]["id"])
+    if not novels:
+        raise click.ClickException("还没有任何小说：先用 `story novel create` 建一本")
+    ids = "、".join(f"{n['id']}({n.get('title', '')})" for n in novels[:10])
+    raise click.ClickException(f"有多本小说，请用 --novel 指定：{ids}")
+
+
+def novel_option(f):
+    """给命令挂 `--novel`（角色卡/世界观按小说绑定后必需）。"""
+    return click.option("--novel", "novel_id", default="", help="小说 ID（留空=只有一本时自动选它）")(f)
+
+
 @character.command(name="list")
-def cmd_list_characters():
-    """列出所有角色卡"""
-    cards = list_cards()
+@novel_option
+def cmd_list_characters(novel_id: str):
+    """列出某本小说的角色卡"""
+    novel_id = _resolve_novel_id(novel_id)
+    cards = list_cards(novel_id)
     if not cards:
-        click.echo("暂无角色卡。运行 `story character example` 创建示例。")
+        click.echo(f"《{novel_id}》暂无角色卡。手动建：`story character import <名字> --path card.json`")
         return
     click.echo(f"共 {len(cards)} 张角色卡：")
     for name in cards:
@@ -76,9 +101,10 @@ def cmd_list_characters():
 
 @character.command()
 @click.argument("name")
-def show(name: str):
+@novel_option
+def show(name: str, novel_id: str):
     """查看角色卡详情"""
-    card = load_card(name)
+    card = load_card(_resolve_novel_id(novel_id), name)
     if not card:
         click.echo(f"未找到角色卡：{name}")
         return
@@ -88,8 +114,9 @@ def show(name: str):
 @character.command()
 @click.argument("name")
 @click.option("--path", "-p", type=click.Path(), help="从JSON文件导入")
-def import_card(name: str, path: str):
-    """从JSON文件导入角色卡"""
+@novel_option
+def import_card(name: str, path: str, novel_id: str):
+    """从JSON文件导入角色卡（导入到 --novel 指定的那本书）"""
     if not path:
         click.echo("请指定 --path")
         return
@@ -97,7 +124,7 @@ def import_card(name: str, path: str):
         data = json.load(f)
     card = CharacterCard(**data)
     card.name = name
-    ok = save_card(card, overwrite=True)
+    ok = save_card(_resolve_novel_id(novel_id), card, overwrite=True)
     if ok:
         click.echo(f"角色卡「{name}」已保存")
     else:
@@ -106,9 +133,10 @@ def import_card(name: str, path: str):
 
 @character.command()
 @click.argument("name")
-def delete(name: str):
+@novel_option
+def delete(name: str, novel_id: str):
     """删除角色卡"""
-    if delete_card(name):
+    if delete_card(_resolve_novel_id(novel_id), name):
         click.echo(f"已删除：{name}")
     else:
         click.echo(f"未找到：{name}")
@@ -116,9 +144,10 @@ def delete(name: str):
 
 @character.command()
 @click.argument("query")
-def search(query: str):
+@novel_option
+def search(query: str, novel_id: str):
     """搜索角色卡"""
-    results = search_cards(query)
+    results = search_cards(_resolve_novel_id(novel_id), query)
     if not results:
         click.echo(f"未找到匹配「{query}」的角色卡")
         return
@@ -128,13 +157,17 @@ def search(query: str):
 
 
 @character.command()
-def example():
-    """创建示例角色卡"""
+@novel_option
+def example(novel_id: str):
+    """把示例角色卡建进指定小说（N8：卡属于某一本书）"""
+    from story_engine.tools.novel_storage import _novel_dir
+
+    novel_id = _resolve_novel_id(novel_id)
     card = create_example_card()
-    ok = save_card(card, overwrite=True)
+    ok = save_card(novel_id, card, overwrite=True)
     if ok:
         click.echo(f"已创建示例角色卡：{card.name}")
-        click.echo(f"  路径：{data_dir() / 'characters' / f'{card.name}.json'}")
+        click.echo(f"  路径：{_novel_dir(novel_id) / 'characters' / f'{card.name}.json'}")
         click.echo("")
         click.echo(card.to_prompt_block())
     else:
@@ -305,7 +338,14 @@ def info():
     click.echo(f"数据目录：{data_dir()}")
     click.echo(f"配置目录：{config_dir()}")
     click.echo("")
-    cards = list_cards()
+    cards: list = []
+    try:
+        from story_engine.tools.novel_storage import list_novels
+
+        for n in list_novels():
+            cards.extend(list_cards(str(n["id"])))
+    except Exception:  # noqa: BLE001 —— 信息命令不该因为读不到卡就崩
+        pass
     books = list_lorebooks()
     click.echo(f"角色卡：{len(cards)} 张")
     click.echo(f"设定集：{len(books)} 个")

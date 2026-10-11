@@ -457,6 +457,81 @@ export async function research(params: {
   return res.data?.data || res.data
 }
 
+// ── 角色卡（N8：按小说绑定；素材库只作复制来源）────
+
+export interface ApiCharacterCard {
+  name: string
+  description?: string
+  personality?: string
+  background?: string
+  appearance?: string
+  first_mes?: string
+  scenario?: string
+  style_examples?: string[]
+  tags?: string[]
+  relationships?: { target: string; relation: string; description: string }[]
+}
+
+function _unwrap(body: any, fallback: string) {
+  if (body?.success === false) throw new Error(body.message || fallback)
+  return body?.data
+}
+
+/** 列出**这本书**的角色卡 */
+export async function fetchNovelCharacters(novelId: string, q = ''): Promise<ApiCharacterCard[]> {
+  const res = await api.get(`/novel/${novelId}/characters`, { params: q ? { q } : {} })
+  return _unwrap(res.data, '读取角色卡失败')?.cards || []
+}
+
+export async function createNovelCharacter(
+  novelId: string,
+  card: ApiCharacterCard,
+): Promise<ApiCharacterCard> {
+  const res = await api.post(`/novel/${novelId}/characters`, card)
+  return _unwrap(res.data, '新建角色卡失败')
+}
+
+export async function updateNovelCharacter(
+  novelId: string,
+  name: string,
+  card: ApiCharacterCard,
+): Promise<ApiCharacterCard> {
+  const res = await api.put(`/novel/${novelId}/characters/${encodeURIComponent(name)}`, card)
+  return _unwrap(res.data, '更新角色卡失败')
+}
+
+export async function deleteNovelCharacter(novelId: string, name: string): Promise<void> {
+  const res = await api.delete(`/novel/${novelId}/characters/${encodeURIComponent(name)}`)
+  _unwrap(res.data, '删除角色卡失败')
+}
+
+/** 素材库（所有书共用的一份"复制来源"，不是共享引用） */
+export async function fetchLibraryCharacters(): Promise<ApiCharacterCard[]> {
+  const res = await api.get('/library/characters')
+  return _unwrap(res.data, '读取素材库失败')?.cards || []
+}
+
+export async function exportCharacterToLibrary(
+  novelId: string,
+  name: string,
+  newName = '',
+): Promise<void> {
+  const res = await api.post(
+    `/novel/${novelId}/characters/${encodeURIComponent(name)}/to-library`,
+    null,
+    { params: newName ? { new_name: newName } : {} },
+  )
+  _unwrap(res.data, '另存为素材失败')
+}
+
+export async function importCharacter(
+  novelId: string,
+  payload: { source: string; name: string; new_name?: string; overwrite?: boolean },
+): Promise<{ name: string; from: string }> {
+  const res = await api.post(`/novel/${novelId}/characters/import`, payload)
+  return _unwrap(res.data, '导入角色卡失败')
+}
+
 export default api
 
 // ── 文风 ─────────────────────────────────────

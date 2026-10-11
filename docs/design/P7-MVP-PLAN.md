@@ -192,7 +192,31 @@
 | **N5** ✅ | A 类校验器 5 条 + `api/routes/check.py`（含漂移无基线时返回 ok/skipped 的行为） | N4 |
 | **N6** ✅ | 审稿页（路由 + 导航注册 + 三栏 + 带指令重写）+ 注入清单落盘 `GET /api/check/manifest` | N4/N5 |
 | **N7** | 章摘要 + SQLite（走 `_novel_dir`）+ 装配接入 + 离线串行队列 | N4 |
-| **N8** | 项目空间：角色卡/世界观**按小说绑定**（全局目录退役）+ 素材库（仅作复制来源） | N6 |
+| **N8** 🚧 | 项目空间：角色卡/世界观**按小说绑定**（全局目录退役）+ 素材库（仅作复制来源） | N6 |
+
+**N8 进度（2026-10-11 收工时）**
+
+已完成（全门禁绿：pytest 855 passed / 94.33%，ruff+mypy 清，vitest 104，vue-tsc 0）：
+- 后端：`characters/manager.py` 改 novel-scoped（list/load/save/delete/search 全部带 novel_id）；
+  新增 `characters/library.py`（素材库，纯复制语义）；`generate.py` 三处"把全部全局卡并进当前小说"
+  的合并代码删除 → 生成只用本书的卡；`cli.py` 的 character 命令迁移为 `--novel` 版
+- 接口：`api/routes/characters.py`（GET/POST/PUT/DELETE `/api/novel/{id}/characters`、
+  `/api/library/characters`、`.../to-library`、`.../import`）已注册进 `main.py`
+- 前端：`CharactersView.vue` 接接口（替换原**纯内存** store）+ 顶部"选择小说"（优先写作页当前那本
+  → 记住上次选的 → 最近更新）+ 另存为素材/从素材库导入/删除；`api.ts` 新增 8 个函数
+- 数据：全局示例（`data/characters/林晓月`、`data/lore/天玄大陆`）删除；
+  `data/novels/未命名作品`（测试残留空壳书）与 `data/novels/novel_ae0fa8d5`（真书的旧本地副本）已清
+- 测试：`tests/test_characters/`（57 例：novel-scoped CRUD、隔离性、素材库复制语义、接口契约）
+
+明天从这里开始（N8 剩余）：
+1. **世界观/设定集同步做一遍**：`lore/lorebook.py` 改 novel-scoped、`engine._build_world_context()`
+   改用本书 `lorebooks`、新增 `/api/novel/{id}/lorebooks` 系列 + 素材库 lore 端点
+2. 前端世界观页（WorldView）加"设定集"区块（现在那页只有世界地图，lorebook 完全没有 UI）
+3. 浏览器 E2E：建卡 → 刷新仍在（持久化回归）→ 换书看不到；素材库导入 → 两本书互不影响
+4. opencode 只读评审 → 逐条处置 → 一个节点一次提交
+5. 待办：`AGENTS.md` 补 N8 约定（需用户在弹窗批准）；`data/novels/{custom-exports,test-novel,导出测试}`
+   是空壳残留目录（无 novel.json，界面不显示），可与用户确认后一并清掉
+
 
 ### N8 决策（用户已定，2026-10-11）
 

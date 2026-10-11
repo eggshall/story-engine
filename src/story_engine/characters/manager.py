@@ -1,82 +1,89 @@
-"""角色卡管理器 — CRUD + 搜索 + 导出"""
+"""角色卡管理器（N8：按小说绑定 = 每本书一个项目空间）。
+
+**数据归属**：卡属于某一本小说，存 `<小说目录>/characters/<名字>.json`（human-readable 镜像），
+真源是 `<小说目录>/novel.json` 里的 `characters` 字典（`Novel` 模型）。
+
+**为什么必须走模型**（踩过的坑）：`novel_storage._write_files` 每次保存都会按模型里的字典
+**重建** `characters/` 目录（先 unlink 所有 *.json 再写）。绕过模型直接往镜像目录写文件，
+会在下一次保存章节时被整目录清空 —— 用户眼里的"卡莫名其妙没了"。
+
+**全局目录已退役**：这里不再碰 `data/characters/`。原来生成时会把全局卡全部并入当前小说，
+导致所有小说共用一副卡组（"角色卡没绑定小说"）。
+"""
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
+import logging
 from typing import List, Optional
 
-from story_engine.core.config import data_dir
-from story_engine.core.models import CharacterCard
+from story_engine.core.models import CharacterCard, Novel
+from story_engine.tools.novel_storage import load_novel, save_novel
 
-CHARACTERS_DIR = data_dir() / "characters"
-
-
-def _ensure_dir() -> None:
-    CHARACTERS_DIR.mkdir(parents=True, exist_ok=True)
+logger = logging.getLogger("story_engine.characters.manager")
 
 
-def _card_path(name: str) -> Path:
-    return CHARACTERS_DIR / f"{name}.json"
+class NovelNotFound(Exception):
+    """小说不存在（调用方应转成用户可读的失败响应）。"""
 
 
-def list_cards() -> List[str]:
-    """列出所有角色卡名称"""
-    _ensure_dir()
-    return sorted(p.stem for p in CHARACTERS_DIR.glob("*.json"))
+def _require_novel(novel_id: str) -> Novel:
+    novel = load_novel(novel_id)
+    if novel is None:
+        raise NovelNotFound(f"小说 '{novel_id}' 不存在")
+    return novel
 
 
-def load_card(name: str) -> Optional[CharacterCard]:
-    """加载指定角色卡"""
-    path = _card_path(name)
-    if not path.exists():
-        return None
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return CharacterCard(**data)
+def list_cards(novel_id: str) -> List[str]:
+    """列出**这本书**的角色卡名（按名字排序）。"""
+    return sorted(_require_novel(novel_id).characters.keys())
 
 
-def save_card(card: CharacterCard, overwrite: bool = False) -> bool:
-    """保存角色卡。若已存在且 overwrite=False 则返回 False"""
-    _ensure_dir()
-    path = _card_path(card.name)
-    if path.exists() and not overwrite:
+def load_card(novel_id: str, name: str) -> Optional[CharacterCard]:
+    """读一张卡；不存在返回 None（不抛错：调用方常需要"有则用、无则跳过"）。"""
+    return _require_novel(novel_id).characters.get(name)
+
+
+def save_card(novel_id: str, card: CharacterCard, overwrite: bool = False) -> bool:
+    """新建/更新一张卡。同名且 `overwrite=False` → 返回 False（不静默覆盖作者的卡）。"""
+    novel = _require_novel(novel_id)
+    if card.name in novel.characters and not overwrite:
         return False
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(card.to_json_dict(), f, ensure_ascii=False, indent=2)
+    novel.characters[card.name] = card
+    save_novel(novel, novel_id)
     return True
 
 
-def delete_card(name: str) -> bool:
-    """删除角色卡"""
-    path = _card_path(name)
-    if not path.exists():
+def delete_card(novel_id: str, name: str) -> bool:
+    """删除一张卡；不存在返回 False。"""
+    novel = _require_novel(novel_id)
+    if name not in novel.characters:
         return False
-    path.unlink()
+    del novel.characters[name]
+    save_novel(novel, novel_id)
     return True
 
 
-def search_cards(query: str) -> List[str]:
-    """按关键词搜索角色卡名称"""
-    results = []
-    for name in list_cards():
-        if query.lower() in name.lower():
-            results.append(name)
-            continue
-        card = load_card(name)
-        if card and (query.lower() in card.description.lower() or
-                     query.lower() in card.personality.lower()):
-            results.append(name)
-    return results
+def search_cards(novel_id: str, query: str) -> List[str]:
+    """按关键词搜本书的卡（名字 / 描述 / 性格）。"""
+    q = query.strip().lower()
+    if not q:
+        return list_cards(novel_id)
+    hits: List[str] = []
+    for name, card in sorted(_require_novel(novel_id).characters.items()):
+        haystack = f"{name} {card.description} {card.personality}".lower()
+        if q in haystack:
+            hits.append(name)
+    return hits
 
 
 def create_example_card() -> CharacterCard:
-    """创建一个示例角色卡"""
+    """示例卡（仅作为"新建卡时可参考的模板"，不再写任何全局目录）。"""
     from story_engine.core.models import Relationship
+
     return CharacterCard(
         name="林晓月",
         description="十七岁的修仙宗门天才少女。外表清冷孤傲，内心其实渴望被理解和认可。"
-                     "拥有千年难遇的冰凤灵体，修行速度远超同龄人。",
+                    "拥有千年难遇的冰凤灵体，修行速度远超同龄人。",
         personality="外冷内热、骄傲但不傲慢、对认定的人极为忠诚",
         scenario="玄幻修仙世界 · 天玄宗",
         background="自幼被天玄宗长老从雪山上捡回，不知父母是谁。八岁筑基，十二岁金丹，"

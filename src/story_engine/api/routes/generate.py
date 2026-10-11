@@ -13,7 +13,6 @@ from sse_starlette.sse import EventSourceResponse
 
 from story_engine.api.schemas import ApiResponse, ChapterV2Request, ChatRequest
 from story_engine.api.sse import done_payload, error_payload, event_stream
-from story_engine.characters.manager import list_cards, load_card
 from story_engine.core.config import get_config
 from story_engine.core.models import Novel
 from story_engine.llm.base import TASK_GENERATE, LLMRequest
@@ -109,11 +108,8 @@ async def generate_outline(novel_id: str = "", chapter_number: int = 1,
         novel = Novel(title="未命名作品", synopsis="")
 
     # 加载已有角色
-    card_names = await anyio.to_thread.run_sync(list_cards)
-    for name in card_names:
-        card = await anyio.to_thread.run_sync(load_card, name)
-        if card:
-            novel.characters[name] = card
+    # N8：不再从全局目录合并角色卡 —— 书里的 `characters` 字典就是本书自己的卡
+    # （load_novel 已把它读进模型），装配器/提示词直接用；原来是"所有小说共用一副全局卡组"。
 
     engine.load_novel(novel)
 
@@ -147,11 +143,8 @@ async def generate_chapter(novel_id: str = "", chapter_number: int = 1,
         return ApiResponse(success=False, message=f"小说 '{novel_id}' 不存在")
     assert novel is not None
 
-    card_names = await anyio.to_thread.run_sync(list_cards)
-    for name in card_names:
-        card = await anyio.to_thread.run_sync(load_card, name)
-        if card:
-            novel.characters[name] = card
+    # N8：不再从全局目录合并角色卡 —— 书里的 `characters` 字典就是本书自己的卡
+    # （load_novel 已把它读进模型），装配器/提示词直接用；原来是"所有小说共用一副全局卡组"。
 
     engine.load_novel(novel)
 
@@ -243,11 +236,8 @@ async def generate_chapter_v2(req: ChapterV2Request):
     if not novel:
         return ApiResponse(success=False, message=f"小说 '{novel_id}' 不存在")
 
-    card_names = await anyio.to_thread.run_sync(list_cards)
-    for name in card_names:
-        card = await anyio.to_thread.run_sync(load_card, name)
-        if card:
-            novel.characters[name] = card
+    # N8：不再从全局目录合并角色卡 —— 书里的 `characters` 字典就是本书自己的卡
+    # （load_novel 已把它读进模型），装配器/提示词直接用；原来是"所有小说共用一副全局卡组"。
 
     # 风格块：profile_id 优先（与 /chat 同一套渲染）
     style_block = ""

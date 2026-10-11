@@ -10,8 +10,7 @@ from story_engine.cli import cli, main
 
 @pytest.fixture(autouse=True)
 def _isolated_env(monkeypatch, tmp_path):
-    """隔离数据目录：字符卡、设定集均写入临时目录。"""
-    import story_engine.characters.manager as char_mod
+    """隔离数据目录：设定集写临时目录；角色卡 N8 起属于小说 → 隔离小说根并建一本测试书。"""
     import story_engine.core.config as cfg_mod
     import story_engine.lore.lorebook as lore_mod
 
@@ -20,8 +19,13 @@ def _isolated_env(monkeypatch, tmp_path):
     data_dir.mkdir(parents=True, exist_ok=True)
     cfg_dir.mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setattr(char_mod, "CHARACTERS_DIR", data_dir / "characters")
     monkeypatch.setattr(lore_mod, "LOREB_DIR", data_dir / "lore")
+    # N8：角色卡按小说绑定（不再有全局 data/characters/）
+    monkeypatch.setattr("story_engine.tools.novel_storage.NOVELS_ROOT", data_dir / "novels")
+    from story_engine.core.models import Novel
+    from story_engine.tools.novel_storage import save_novel
+
+    save_novel(Novel(title="测试书"), "novel_cli_test")
 
     def _data_dir():
         return data_dir

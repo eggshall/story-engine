@@ -45,7 +45,6 @@ def novels_root(tmp_path, monkeypatch):
     root = tmp_path / "novels"
     root.mkdir()
     monkeypatch.setattr("story_engine.tools.novel_storage.NOVELS_ROOT", root)
-    monkeypatch.setattr("story_engine.characters.manager.CHARACTERS_DIR", tmp_path / "characters")
     return root
 
 
