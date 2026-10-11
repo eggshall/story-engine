@@ -12,7 +12,7 @@ from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
 
 from story_engine.api.schemas import ApiResponse, ChatRequest
-from story_engine.api.sse import event_stream
+from story_engine.api.sse import done_payload, error_payload, event_stream
 from story_engine.characters.manager import list_cards, load_card
 from story_engine.core.config import get_config
 from story_engine.core.models import Novel
@@ -123,12 +123,16 @@ async def generate_outline(novel_id: str = "", chapter_number: int = 1,
 
 
 async def _stream_outline(engine, ch_num: int, title: str, model: str):
-    """生成大纲并返回结构化对象（外层 event_stream 统一包装）"""
+    """生成大纲，结果以 **done 载荷** 回传（N2：结构体不再混在 token 流里）
+
+    理由：前端 `readSSE` 在 done 处收尾，token 事件里的结构体既不是正文、
+    也没有明确的接收点（历史上 OutlineView 直接丢弃了它）。
+    """
     outline = await engine.generate_outline(ch_num, title, model=model or None)
     if outline:
-        yield outline.model_dump(exclude_none=True)
+        yield done_payload(outline=outline.model_dump(exclude_none=True))
     else:
-        yield {"error": "大纲生成失败"}
+        yield error_payload("大纲生成失败")
 
 
 @router.post("/chapter")
@@ -163,7 +167,7 @@ async def _stream_chapter(engine, ch_num: int, title: str, model: str, novel: No
     # 1. 生成大纲
     outline = await engine.generate_outline(ch_num, title, model=model or None)
     if not outline:
-        yield {"error": "大纲生成失败"}
+        yield error_payload("大纲生成失败")
         return
 
     # 2. 通过流式 API 生成内容
@@ -218,7 +222,9 @@ async def _stream_chapter(engine, ch_num: int, title: str, model: str, novel: No
     novel_data.chapters.append(chapter)
     await anyio.to_thread.run_sync(_save_novel, novel_data, novel_id)
 
-    yield {"done": True, "chapter": chapter.model_dump(exclude_none=True)}
+    # N2：结果（后端权威章节记录）随 done 载荷下发，前端据此拿到标题/字数与
+    # 后续要挂上的注入清单；且这条 done 之后 event_stream 不会再补第二个。
+    yield done_payload(chapter=chapter.model_dump(exclude_none=True))
 
 
 @router.post("/chat")

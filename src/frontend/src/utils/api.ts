@@ -47,11 +47,15 @@ export function apiUrl(path: string): string {
 /**
  * 通用 SSE 流解析器 — 解析 event/data 格式，逐 token 回传
  * 后端格式: event: token / event: done / event: error
+ *
+ * N2 契约：`done` 事件是**唯一的结果收尾信号**，其 data 载荷（如章节生成的
+ * `chapter`、后续的 `injection_manifest`）通过 `onDone(payload)` 交给调用方；
+ * 读到第一个 `done` 即结束（后端保证只发一个，客户端再兜一层防御）。
  */
 async function* readSSE<T = string>(
   res: Response,
   onToken: (data: any) => T | null,
-  onDone?: () => T | null,
+  onDone?: (payload: StreamDonePayload) => T | null,
   onError?: (msg: string) => T | null,
 ): AsyncGenerator<T> {
   if (!res.ok) throw new Error(`SSE error: ${res.status}`)
@@ -76,7 +80,7 @@ async function* readSSE<T = string>(
           if (result !== null) yield result
         } else if (currentEvent === 'done') {
           if (onDone) {
-            const result = onDone()
+            const result = onDone(parseDonePayload(raw))
             if (result !== null) yield result
           }
           return
@@ -96,6 +100,30 @@ async function* readSSE<T = string>(
         }
       }
     }
+  }
+}
+
+/** done 事件载荷：至少含 `done: true`，其余字段由各流自己定义 */
+export interface StreamDonePayload {
+  done?: boolean
+  [key: string]: any
+}
+
+/** 流式接口的可选钩子（N2 起：done 载荷从 done 事件里回传） */
+export interface StreamHooks {
+  onDone?: (payload: StreamDonePayload) => void
+}
+
+/** 解析 done 载荷：空/非法 JSON 不炸（按"已完成"处理并告警），避免收尾阶段反而把流打断 */
+function parseDonePayload(raw: string): StreamDonePayload {
+  if (!raw) return { done: true }
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') return parsed as StreamDonePayload
+    return { done: true }
+  } catch {
+    console.warn('SSE done 载荷解析失败，按空载荷处理')
+    return { done: true }
   }
 }
 
@@ -177,12 +205,17 @@ export async function createNovel(data: NovelCreateRequest): Promise<NovelDetail
 
 // ── 生成 ─────────────────────────────────────
 
-export async function* generateOutlineStream(params: {
-  novel_id?: string
-  chapter_number?: number
-  chapter_title?: string
-  model?: string
-}): AsyncGenerator<string> {
+export async function* generateOutlineStream(
+  params: {
+    novel_id?: string
+    chapter_number?: number
+    chapter_title?: string
+    model?: string
+  },
+  hooks?: StreamHooks,
+): AsyncGenerator<string> {
+  // 注意（N2 评审 P2-8）：本接口的**结果不在 token 流里**，而是 done 载荷的 `outline`
+  // 字段（经 hooks.onDone 传出）；返回值只保留签名兼容，不要把它当结构体用。
   const res = await fetch(apiUrl('/generate/outline'), {
     method: 'POST',
     headers: sseHeaders(),
@@ -192,16 +225,22 @@ export async function* generateOutlineStream(params: {
   yield* readSSE(
     res,
     (d) => d.token ?? null,
-    () => null,
+    (payload) => {
+      hooks?.onDone?.(payload)
+      return null
+    },
   )
 }
 
-export async function* generateChapterStream(params: {
-  novel_id?: string
-  chapter_number: number
-  chapter_title?: string
-  model?: string
-}): AsyncGenerator<string> {
+export async function* generateChapterStream(
+  params: {
+    novel_id?: string
+    chapter_number: number
+    chapter_title?: string
+    model?: string
+  },
+  hooks?: StreamHooks,
+): AsyncGenerator<string> {
   const res = await fetch(apiUrl('/generate/chapter'), {
     method: 'POST',
     headers: sseHeaders(),
@@ -211,20 +250,26 @@ export async function* generateChapterStream(params: {
   yield* readSSE(
     res,
     (d) => d.token ?? null,
-    () => null,
+    (payload) => {
+      hooks?.onDone?.(payload)
+      return null
+    },
   )
 }
 
-export async function* chatStream(params: {
-  messages: { role: string; content: string }[]
-  system_prompt?: string
-  model?: string
-  temperature?: number
-  mode?: string
-  search?: boolean
-  stylePrompt?: string
-  profileId?: string
-}): AsyncGenerator<string> {
+export async function* chatStream(
+  params: {
+    messages: { role: string; content: string }[]
+    system_prompt?: string
+    model?: string
+    temperature?: number
+    mode?: string
+    search?: boolean
+    stylePrompt?: string
+    profileId?: string
+  },
+  hooks?: StreamHooks,
+): AsyncGenerator<string> {
   const res = await fetch(apiUrl('/generate/chat'), {
     method: 'POST',
     headers: sseHeaders(),
@@ -234,7 +279,10 @@ export async function* chatStream(params: {
   yield* readSSE(
     res,
     (d) => d.token ?? null,
-    () => null,
+    (payload) => {
+      hooks?.onDone?.(payload)
+      return null
+    },
   )
 }
 

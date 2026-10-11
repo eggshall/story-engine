@@ -2,10 +2,15 @@
 """P6 文风画像入库 — 把批量结果写入 style_profiles.db
 用法: python3 p6_style_import.py <result.json> [result2.json ...]
 """
-import json, sys, time, uuid
+import json
+import sys
+import time
+import uuid
+
 sys.path.insert(0, "/home/syzc/story-engine/src")
 
 from story_engine.style.db import StyleDb, StyleProfile
+
 
 def main():
     files = sys.argv[1:] or ["/tmp/style_batch_result.json"]

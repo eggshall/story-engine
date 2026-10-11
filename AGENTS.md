@@ -61,8 +61,10 @@ npx vitest run         # 单测
 npx vue-tsc --noEmit   # 类型检查
 
 # 浏览器 E2E（项目根；先起开发栈，再跑 Playwright）
-bash scripts/e2e_dev_stack.sh   # 起后端(8000)+前端(5173) 并做 HTTP 鉴权校验
-npm run e2e                     # = playwright test --config e2e/playwright.config.ts
+bash scripts/e2e_dev_stack.sh           # 起后端(8000)+前端(5173) 并做 HTTP 鉴权校验（真实模型）
+bash scripts/e2e_dev_stack.sh --fake    # 假上游模式：模型指向本地假上游(8899)，不花钱、正文可断言
+npm run e2e                             # = playwright test --config e2e/playwright.config.ts
+# 开发栈退出（含 Ctrl-C）会自动清理自己起的进程；--fake 的临时配置在 /tmp/e2e_fake_config.yaml
 ```
 
 注意（本机环境特有）：
@@ -76,10 +78,11 @@ npm run e2e                     # = playwright test --config e2e/playwright.conf
 |---|---|
 | **鉴权头** | 后端在 `security.api_key` 已配置时对 `/api/*` 强制校验 `X-API-Key`（`/api/health` 除外）。前端所有请求必须带头：REST 走 `utils/api.ts` 的 axios 实例（拦截器注入），SSE 用 `sseHeaders()`。**新增任何请求路径都要带**。 |
 | **密钥来源与安全** | 前端密钥优先级：`localStorage['story_api_key']`（设置页运行时录入，`setApiKey()`）> 构建期 `import.meta.env.VITE_API_KEY`。生产部署**优先用设置页录入**——构建期注入会把密钥打进 `dist` bundle；localStorage 明文仅适用于本机单用户场景。切换密钥无需刷新，但已加载的数据需重新触发请求。 |
-| **SSE 契约** | 事件为 `token` / `done` / `error`；`EventSourceResponse` 只接受 dict（不要自己拼 `data:` 字符串）。前端 `readSSE` 逐 token 解析，**`error` 事件默认抛 `Error`（不能当正文 yield，否则会被存进章节）**，调用方负责 catch 后提示用户。 |
+| **SSE 契约（N2）** | 事件为 `token` / `done` / `error`；`EventSourceResponse` 只接受 dict（不要自己拼 `data:` 字符串）。**单一 done**：一条流最多一个 `done` —— 生成器自己 yield 了 done（用 `sse.done_payload(**fields)` 构造）包装层就不再补发；`done` 之后产出的事件一律丢弃并告警；`error` 流不再有 `done`。**载荷**：结果字段（`chapter`、`outline`、后续的 `injection_manifest`）放 done 的 data 里，前端用 `readSSE.onDone(payload)`（即三个流式接口的第二参 `hooks.onDone`）接收。前端 `readSSE` 逐 token 解析，**`error` 事件默认抛 `Error`（不能当正文 yield，否则会被存进章节）**，调用方负责 catch 后提示用户。 |
 | **空产出守卫** | 远程与本地客户端都必须受保护：守卫在 `router.py::_guard_nonempty_stream` / `_chat_with_retry`（provider 无关），本地客户端没有自己的守卫，新增客户端不要重复实现。 |
 | **每本小说目录** | 通过 `tools/novel_storage.py::_novel_dir(novel_id)` 取真实目录（支持自定义路径 + 索引），不要自己拼路径。 |
 | **配置** | `core/config.py::_LLMModelConfig` 是白名单：新增配置字段必须同时加进模型，否则会被 `model_dump()` **静默剥离**。 |
+| **配置路径覆盖** | `STORY_CONFIG_PATH=<file>` 覆盖 `core/config.py::DEFAULT_CONFIG_PATH`（浏览器 E2E / 多环境用）。生产环境别设，否则配置静默漂移。 |
 | **前端字段命名** | 后端 `APIModel` 兼容 camelCase/snake_case（`alias_generator=to_camel`）。 |
 | **本地模型显存** | 本地大模型（如 gm4 ≈14.4GB）与交互式写作不能并发（16GB 卡）；离线批处理必须串行排队。 |
 

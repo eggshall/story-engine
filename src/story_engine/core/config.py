@@ -43,7 +43,26 @@ def config_dir() -> Path:
 
 # ── 配置加载 ──────────────────────────────────────────────
 
-DEFAULT_CONFIG_PATH = config_dir() / "config.yaml"
+# 配置路径覆盖开关（N2）：`STORY_CONFIG_PATH=<path>` 时优先使用该文件。
+# 用途：浏览器 E2E / 多环境部署（如把模型指向本地假上游跑真 UI 链路），
+# 避免为了测试去改项目的 config/config.yaml。
+CONFIG_PATH_ENV = "STORY_CONFIG_PATH"
+
+DEFAULT_CONFIG_PATH = (
+    Path(os.environ[CONFIG_PATH_ENV])
+    if os.environ.get(CONFIG_PATH_ENV)
+    else config_dir() / "config.yaml"
+)
+
+# P2-6（N2 评审）：显式覆盖却指到不存在的文件时，`Config._load` 会静默回退成空配置
+# （security.api_key 变空 → 鉴权中间件退化为"仅回环"，服务表现为不可用）。
+# 这是"显式设置却无效"的典型静默故障，导入时就告警，别等运行时才发现。
+if os.environ.get(CONFIG_PATH_ENV) and not DEFAULT_CONFIG_PATH.exists():
+    logger.warning(
+        "%s 指向的配置文件不存在: %s（将回退为空配置，鉴权/模型设置都会失效）",
+        CONFIG_PATH_ENV,
+        DEFAULT_CONFIG_PATH,
+    )
 
 
 class _LLMModelConfig(BaseModel):

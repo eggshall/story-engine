@@ -321,17 +321,30 @@ async function generateChapter() {
     novelStore.selectChapter(chNum)
     novelStore.currentChapter!.content = ''
 
-    for await (const token of generateChapterStream({
-      novel_id: novelStore.currentNovel.id,
-      chapter_number: chNum,
-      model: selectedModel.value,
-    })) {
+    // N2：done 载荷 = 后端权威章节记录（标题/字数），token 流只负责正文
+    let donePayload: Record<string, any> | null = null
+    for await (const token of generateChapterStream(
+      {
+        novel_id: novelStore.currentNovel.id,
+        chapter_number: chNum,
+        model: selectedModel.value,
+      },
+      { onDone: (p) => { donePayload = p } },
+    )) {
       if (novelStore.currentChapter) {
         novelStore.currentChapter.content += token
       }
     }
     // 只有真的产出正文才落盘（N1 评审 P1-6：空产出/报错不能存成空章节或错误正文）
     if ((novelStore.currentChapter?.content || '').trim()) {
+      // 后端的章节标题来自大纲，本地占位章节是空的 → 采用后端这份，避免出现"无标题章节"
+      const serverChapter = donePayload?.chapter
+      if (serverChapter) {
+        if (serverChapter.title) novelStore.currentChapter!.title = serverChapter.title
+        if (typeof serverChapter.word_count === 'number') {
+          novelStore.currentChapter!.word_count = serverChapter.word_count
+        }
+      }
       await novelStore.saveCurrentChapter()
     } else {
       await rollbackEmptyChapter(chNum)

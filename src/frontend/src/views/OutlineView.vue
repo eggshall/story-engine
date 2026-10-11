@@ -119,8 +119,12 @@ async function generateOutline() {
   generating.value = true
   try {
     chapters.value = []
-    for await (const token of generateOutlineStream({ novel_id: selectedNovelId.value })) {
-      // 逐步累积
+    // N2：大纲内容随 done 载荷回来（不再是 token 流里的结构体）
+    for await (const _token of generateOutlineStream(
+      { novel_id: selectedNovelId.value },
+      { onDone: (p) => applyOutline(p?.outline) },
+    )) {
+      // token 流在本接口不承载内容（保留兼容）
     }
   } catch (err: any) {
     // N1 评审 P1-6：后端 event: error 会让流抛错，必须让用户看到原因（原来是静默失败）
@@ -128,6 +132,24 @@ async function generateOutline() {
   } finally {
     generating.value = false
   }
+}
+
+/** 把后端大纲塞进左侧章节树（同章号覆盖，缺号新增） */
+function applyOutline(outline: any) {
+  if (!outline) return
+  const num = Number(outline.chapter_number) || 1
+  const item: ChapterOutline = {
+    number: num,
+    title: outline.title || '',
+    summary: outline.summary || '',
+    beats: Array.isArray(outline.beats) ? outline.beats.join('\n') : (outline.beats || ''),
+    keywords: Array.isArray(outline.key_scenes) ? outline.key_scenes : [],
+  }
+  const idx = chapters.value.findIndex((c) => c.number === num)
+  if (idx >= 0) chapters.value[idx] = item
+  else chapters.value.push(item)
+  selectedChapterNumber.value = num
+  ElMessage.success(`已生成第${num}章大纲`)
 }
 
 watch(selectedNovelId, () => {

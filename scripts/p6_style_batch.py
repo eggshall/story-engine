@@ -2,7 +2,10 @@
 """P6 文风画像批量生成 — 第一批 12 本，本地模型 gm4:latest
 用法: python3 p6_style_batch.py [limit] [offset]  # limit=本数, offset=跳过前N本
 """
-import json, re, sys, time, uuid
+import json
+import re
+import sys
+import time
 import urllib.request
 
 OLLAMA = "http://localhost:11434"

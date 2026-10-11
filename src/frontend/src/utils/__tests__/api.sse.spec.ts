@@ -169,3 +169,99 @@ describe('N1 · 空产出的 error 事件在前端表现为异常（不落盘）
     expect(tokens).toEqual(['你好', '世界'])
   })
 })
+
+// N2：done 载荷契约（后端单一 done + 载荷寄在 done 上；前端必须把它送达调用方）
+const DONE_WITH_PAYLOAD = [
+  'event: token',
+  'data: {"token":"擂台"}',
+  '',
+  '',
+  'event: token',
+  'data: {"token":"之上"}',
+  '',
+  '',
+  'event: done',
+  'data: {"done":true,"chapter":{"chapter_number":1,"title":"试炼","word_count":4}}',
+  '',
+  '',
+].join(NL)
+
+const DOUBLE_DONE = [
+  'event: token',
+  'data: {"token":"甲"}',
+  '',
+  '',
+  'event: done',
+  'data: {"done":true,"chapter":{"chapter_number":1,"title":"第一份"}}',
+  '',
+  '',
+  'event: token',
+  'data: {"token":"不该出现"}',
+  '',
+  '',
+  'event: done',
+  'data: {"done":true,"chapter":{"chapter_number":1,"title":"第二份"}}',
+  '',
+  '',
+].join(NL)
+
+describe('N2 · done 载荷契约（readSSE.onDone(payload)）', () => {
+  it('章节流：done 的 chapter 载荷原样交给 onDone，且只调用一次', async () => {
+    sseBody = DONE_WITH_PAYLOAD
+    const payloads: Record<string, any>[] = []
+
+    const tokens = await collect(
+      generateChapterStream({ chapter_number: 1 }, { onDone: (p) => payloads.push(p) }),
+    )
+
+    expect(tokens).toEqual(['擂台', '之上'])
+    expect(payloads).toHaveLength(1)
+    expect(payloads[0].done).toBe(true)
+    expect(payloads[0].chapter.title).toBe('试炼')
+    expect(payloads[0].chapter.word_count).toBe(4)
+  })
+
+  it('大纲流：done 载荷同样送到 onDone（不再只能靠 token 承载结构体）', async () => {
+    sseBody = [
+      'event: done',
+      'data: {"done":true,"outline":{"chapter_number":1,"title":"试炼","beats":["入场"]}}',
+      '',
+      '',
+    ].join(NL)
+    const payloads: Record<string, any>[] = []
+
+    const tokens = await collect(
+      generateOutlineStream({ novel_id: 'n1' }, { onDone: (p) => payloads.push(p) }),
+    )
+
+    expect(tokens).toEqual([])
+    expect(payloads).toHaveLength(1)
+    expect(payloads[0].outline.title).toBe('试炼')
+  })
+
+  it('防御性：后端若违规发两次 done，客户端只认第一次', async () => {
+    sseBody = DOUBLE_DONE
+    const payloads: Record<string, any>[] = []
+
+    const tokens = await collect(
+      generateChapterStream({ chapter_number: 1 }, { onDone: (p) => payloads.push(p) }),
+    )
+
+    expect(tokens).toEqual(['甲'])
+    expect(payloads).toHaveLength(1)
+    expect(payloads[0].chapter.title).toBe('第一份')
+  })
+
+  it('兼容：done 事件体为空/非法 JSON 时不炸，仍按完成处理', async () => {
+    sseBody = ['event: done', 'data: ', '', ''].join(NL)
+    const payloads: Record<string, any>[] = []
+
+    const tokens = await collect(
+      generateChapterStream({ chapter_number: 1 }, { onDone: (p) => payloads.push(p) }),
+    )
+
+    expect(tokens).toEqual([])
+    expect(payloads).toHaveLength(1)
+  })
+})
+

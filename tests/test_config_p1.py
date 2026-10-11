@@ -179,3 +179,52 @@ class TestRouterNoPollution:
         monkeypatch.setattr(builtins, "__import__", _blocked)
         cfg = reload_config()
         assert cfg.all() == {"llm": {"models": []}}
+
+
+class TestConfigPathEnvOverride:
+    """N2 附带：配置路径可用 `STORY_CONFIG_PATH` 覆盖（浏览器 E2E 用假上游的前提）。
+
+    没有这个开关，跑浏览器 E2E 就只能用真实 config/config.yaml（真实模型、真实花钱、
+    正文不可断言）。
+    """
+
+    def test_env_override_changes_default_path(self, monkeypatch, tmp_path):
+        import importlib
+
+        import story_engine.core.config as cfg_mod
+
+        fake = tmp_path / "e2e.yaml"
+        fake.write_text("security:\n  api_key: dummy\nllm:\n  models: []\n", encoding="utf-8")
+        monkeypatch.setenv("STORY_CONFIG_PATH", str(fake))
+        reloaded = importlib.reload(cfg_mod)
+        try:
+            assert reloaded.DEFAULT_CONFIG_PATH == fake
+            assert reloaded.Config().path == fake
+        finally:
+            monkeypatch.delenv("STORY_CONFIG_PATH", raising=False)
+            importlib.reload(cfg_mod)
+
+    def test_no_env_keeps_project_config(self, monkeypatch):
+        import importlib
+
+        import story_engine.core.config as cfg_mod
+
+        monkeypatch.delenv("STORY_CONFIG_PATH", raising=False)
+        reloaded = importlib.reload(cfg_mod)
+        assert reloaded.DEFAULT_CONFIG_PATH == reloaded.config_dir() / "config.yaml"
+
+    def test_missing_override_file_warns(self, monkeypatch, caplog):
+        """P2-6：显式覆盖指到不存在的文件时必须在导入期告警（否则静默退化成空配置）"""
+        import importlib
+
+        import story_engine.core.config as cfg_mod
+
+        monkeypatch.setenv("STORY_CONFIG_PATH", "/tmp/definitely-not-here-e2e.yaml")
+        try:
+            with caplog.at_level("WARNING", logger="story_engine.config"):
+                reloaded = importlib.reload(cfg_mod)
+            assert reloaded.DEFAULT_CONFIG_PATH == Path("/tmp/definitely-not-here-e2e.yaml")
+            assert any("不存在" in r.getMessage() for r in caplog.records)
+        finally:
+            monkeypatch.delenv("STORY_CONFIG_PATH", raising=False)
+            importlib.reload(cfg_mod)
