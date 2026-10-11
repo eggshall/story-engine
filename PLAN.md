@@ -282,6 +282,47 @@ story-engine/
 - [x] 写作进度面板 (字数统计/阶段标记)
 - [x] 润色/扩写/缩写右键菜单
 
+## Phase 4 — 长篇一致性记忆层 (P7) 🚧 调研完成, M1 部分落地
+> 目标: 支撑 2000 万字级长篇连载,"正常继续写作"且**全书文风统一**。
+> 设计总纲: `docs/design/P7-LONG-MEMORY.md`（含架构/数据模型/预算表/验收标准）
+> 调研依据: `docs/research/R1-long-context-memory.md`（长上下文与记忆系统）
+>           `docs/research/R2-style-consistency.md`（文风统一）
+>           `docs/research/R3-prior-art-wiki.md`（先例与"每本小说一个知识库"评估）
+
+### M1 — 文风漂移检测（纯 Python, 无新依赖) ✅ 已完成
+- [x] `style/metrics.py` — 17 项确定性文风指标（句长/对话占比/标点丰富度/虚词比例/人称分布…）
+- [x] `style/drift.py` — 基线构建（中位数）+ 多指标偏差分级 + AI 套话命中 + 禁用词硬告警
+- [x] 容差地板值 + 聚合分级规则（真实语料 1711 章实测调参, 见设计文档 §6.4）
+- [x] 15 个单元测试；ruff / mypy 全绿
+
+### M2 — 章摘要流水线与装配器（下一步）
+- [ ] 章摘要 schema（事件/出场/状态变化/钩子）+ 结构化 JSON 抽取（本地模型）
+- [ ] 摘要树: 章 → 10 章组 → 100 章卷 → 全书主线（增量更新, 不重跑）
+- [ ] SQLite 索引（`summaries` 表）+ 侧车文件镜像
+- [ ] 上下文装配器 v1（固定槽位: 主线 + 当前卷 + 最近 N 章摘要 + 上一章结尾 + 本章大纲）
+- [ ] 验收: 20M 字级装配输入 ≤ 45K token, 且第 N 章可正确接续第 N-100 章的主线
+
+### M3 — 每本小说一个知识库（novel-kb）
+- [ ] 目录结构 + SCHEMA.md + `index.md` / `log.md`（参照 llm-wiki 模式, 见 R3.C）
+- [ ] 页面 frontmatter schema: `id/type/aliases/status/established_in/valid_from/supersedes`
+- [ ] 人物 / 地点 / 组织 / 物品 / 事件 / **伏笔(planted→developed→payed_off)** / 文风锚点
+- [ ] 增量维护: 写完一章 → 抽取状态变更 → 只 touch 命中的页 + index + log
+- [ ] lint: 孤儿页（写了没提）、断链（提了没建页）、悬空伏笔、设定冲突（区分 plot hole / 刻意反转）
+- [ ] 注入器: 关键词/别名触发 + 递归链 + scan depth + token 预算守卫（移植 SillyTavern World Info 语义）
+
+### M4 — 混合检索（正文层）
+- [ ] 章节场景分块（300-800 字）+ 本地 embedding（Ollama `bge-m3`, `/api/embed`）
+- [ ] BM25/关键词（人名专名精确匹配）+ 向量（语义改写）混合, 结构化过滤
+- [ ] 检索结果接入装配器动态槽位（top-6 原文片段）
+- [ ] 自建评测集: 从已入库语料抽"一致性/伏笔/文风"问答, 测召回（R1/R2 均指出公开基准空白）
+
+### M5 — 生成后闭环与模型侧增强（按需)
+- [ ] best-of-n(n=3-5) 按文风分 rerank + 正则防奖励攻击
+- [ ] 章级一致性 lint 接入 ConStory 式 5 类 19 子类检测（视角/语气/文风偏移重点）
+- [ ] 图谱关系层（只对知识库实体建图 + PPR 多跳, 不做全文建图）
+- [ ] 风格 LoRA（语料 ≥3 万字后, 参考 StyleAdaptedLM 非结构化语料路线）
+- [ ] 暂缓: DPO/GRPO、n-gram logit 注入、激活向量（证据不足/脆弱）
+
 | 参考项目地址
 | 项目 | 地址 |
 |------|------|

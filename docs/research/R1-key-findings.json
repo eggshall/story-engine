@@ -1,0 +1,17 @@
+{
+  "file_path": "/home/syzc/story-engine/docs/research/R1-long-context-memory.md",
+  "key_findings": [
+    "纯「全文塞进上下文」路线已被三份独立实证证伪：RULER(2404.06654)发现17个标称≥32K的模型只有一半在32K维持性能；NoLiMa(2502.05167)发现13个模型在32K处11个跌到短基线50%以下、GPT-4o从99.3%跌到69.7%；Chroma Context Rot报告(18模型受控实验)显示性能随长度一致衰减、干扰项破坏力被放大。",
+    "2000万字≈1500-2000万token，远超128K窗口；唯一可行方向是「外部化记忆+按需检索注入」，把写作当下最相关的小撮材料喂进窗口，绝不塞全文。",
+    "递归/分层架构是突破窗口上限的正解：MIT Recursive Language Models(2512.24601)把长prompt当环境用代码递归查询，可处理超出窗口两个数量级的输入，GPT-5上相对compaction中位+26%；RAPTOR(2401.18059)递归摘要树在QuALITY上+20%绝对准确率。对小说最务实的是章→卷→全书三级滚动摘要+检索。",
+    "Agent记忆系统给出一致方法论（抽取要点→存外部→检索注入+定期反思整合）：MemGPT/Letta做上下文分页(2310.08560)，Mem0相对OpenAI全上下文+26%、p95延迟-91%、token省>90%(2504.19413)，Generative Agents的memory stream+reflection(2304.03442)，ACE的演化式playbook上下文(2510.04618, agents+10.6%)。",
+    "对人物/事件/伏笔这类强关系多跳文本，图谱检索有实测优势：HippoRAG(2405.14831)多跳QA最多+20%、比迭代检索便宜10-20倍快6-13倍；GraphRAG(2404.16130)在1M token全局问题优于朴素向量RAG；LightRAG(2410.05779)支持增量更新适合逐章追加。",
+    "图谱索引代价高：需对全文做LLM实体/关系抽取，20M字全量建图不可行；应只对「角色/地点/事件/伏笔」结构化层建图，正文仍走向量/BM25检索。",
+    "混合检索（向量+BM25+关键词触发Lorebook+结构化过滤）工程价值有通用实证（VLDB hybrid search论文、SillyTavern World Info社区实践），但「中文长篇小说叙事文本组合最优解」无公开对照基准——这是研究空白，需自建评测集。",
+    "20M字工程量化：500字/块≈4万块，本地BGE-M3(2402.03216)嵌入零API费用、显存占用极小；云端embedding一次性成本仅约$0.4(text-embedding-3-small)到$2.6(large)数量级——embedding不是瓶颈，真正的成本是章摘要+建图的LLM调用。",
+    "检索延迟毫秒级（4万向量+BM25单机、HippoRAG的Personalized PageRank），瓶颈在LLM生成与递归调用而非检索。",
+    "推荐落地组合：章/场景分块+本地BGE-M3+BM25混合检索 + 结构化Lorebook(关键词触发+伏笔未回收状态机) + 章→卷→全书滚动摘要 + 裁剪版图谱(人物/事件/伏笔) + ACE式演化角色卡 + 自建一致性评测集。",
+    "证据分级已标注：Lost in the Middle/RULER/NoLiMa/Context Rot/RLM/RAPTOR/MemGPT/Mem0/A-MEM/Generative Agents/ACE/GraphRAG/LightRAG/HippoRAG等为论文或工程实证；各厂商1M/10M上下文标称值及Mem0/Letta商业页营销为话术需打折。",
+    "明确未找到证据（不编造）：(1)中文长篇小说叙事文本混合检索/图谱组合的公开对照基准；(2)最新一代模型全窗口装载vs压缩工作集的受控对比(Lumisonde标注为开放问题)；(3)20M字真实小说语料级系统评测——所有系统均在≤1M token规模验证。"
+  ]
+}
