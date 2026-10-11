@@ -92,8 +92,9 @@ npm run e2e                             # = playwright test --config e2e/playwri
 - 提交前必须全绿：`pytest -q`、`vitest run`、`ruff`、`mypy`、`vue-tsc --noEmit`、`vite build`。
 - **E2E 判定**：改了跨进程/跨层行为（HTTP、SSE、鉴权、文件落盘）就必须有 E2E；纯内部函数用单测。
   - 后端：真实 app + 真实 HTTP（含鉴权头）→ 放 `tests/e2e/`，用 uvicorn 起真实 socket + 本地"假上游"
-    （OpenAI 兼容 HTTP server）打真实请求，SSE 要断言"逐 token + 单一 done + done 载荷字段"。
-    `TestClient`（进程内 ASGI）算单测，不算 E2E。
+    （OpenAI 兼容 HTTP server）；工具在 `tests/e2e/fake_upstream.py`
+    （`FakeUpstream` / `write_config` / `real_http_stack` / `parse_sse_events`，N1/N2 起共用）打真实请求，
+    SSE 要断言"逐 token + 单一 done + done 载荷字段"。`TestClient`（进程内 ASGI）算单测，不算 E2E。
   - 前端：关键路径必须有**真实浏览器**冒烟（Playwright，见 `e2e/`），复用已缓存 chromium
     （`~/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome`），不要重新下载浏览器。
   - 真实模型调用标 `@pytest.mark.live`，默认不跑（`STORY_LIVE=1` 才执行）。
