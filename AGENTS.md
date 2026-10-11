@@ -78,9 +78,11 @@ npm run e2e                             # = playwright test --config e2e/playwri
 |---|---|
 | **鉴权头** | 后端在 `security.api_key` 已配置时对 `/api/*` 强制校验 `X-API-Key`（`/api/health` 除外）。前端所有请求必须带头：REST 走 `utils/api.ts` 的 axios 实例（拦截器注入），SSE 用 `sseHeaders()`。**新增任何请求路径都要带**。 |
 | **密钥来源与安全** | 前端密钥优先级：`localStorage['story_api_key']`（设置页运行时录入，`setApiKey()`）> 构建期 `import.meta.env.VITE_API_KEY`。生产部署**优先用设置页录入**——构建期注入会把密钥打进 `dist` bundle；localStorage 明文仅适用于本机单用户场景。切换密钥无需刷新，但已加载的数据需重新触发请求。 |
-| **SSE 契约（N2）** | 事件为 `token` / `done` / `error`；`EventSourceResponse` 只接受 dict（不要自己拼 `data:` 字符串）。**单一 done**：一条流最多一个 `done` —— 生成器自己 yield 了 done（用 `sse.done_payload(**fields)` 构造）包装层就不再补发；`done` 之后产出的事件一律丢弃并告警；`error` 流不再有 `done`。**载荷**：结果字段（`chapter`、`outline`、后续的 `injection_manifest`）放 done 的 data 里，前端用 `readSSE.onDone(payload)`（即三个流式接口的第二参 `hooks.onDone`）接收。前端 `readSSE` 逐 token 解析，**`error` 事件默认抛 `Error`（不能当正文 yield，否则会被存进章节）**，调用方负责 catch 后提示用户。 |
+| **SSE 契约（N2）** | 事件为 `token` / `done` / `error`；`EventSourceResponse` 只接受 dict（不要自己拼 `data:` 字符串）。**单一 done**：一条流最多一个 `done` —— 生成器自己 yield 了 done（用 `sse.done_payload(**fields)` 构造）包装层就不再补发；`done` 之后产出的事件一律丢弃并告警；`error` 流不再有 `done`。**载荷**：结果字段（`chapter`、`outline`、后续的 `context_manifest`）放 done 的 data 里，前端用 `readSSE.onDone(payload)`（即三个流式接口的第二参 `hooks.onDone`）接收。前端 `readSSE` 逐 token 解析，**`error` 事件默认抛 `Error`（不能当正文 yield，否则会被存进章节）**，调用方负责 catch 后提示用户。 |
 | **空产出守卫** | 远程与本地客户端都必须受保护：守卫在 `router.py::_guard_nonempty_stream` / `_chat_with_retry`（provider 无关），本地客户端没有自己的守卫，新增客户端不要重复实现。 |
 | **每本小说目录** | 通过 `tools/novel_storage.py::_novel_dir(novel_id)` 取真实目录（支持自定义路径 + 索引），不要自己拼路径。 |
+| **手写件约定（N4b）** | 装配器从小说目录读作者手写的三件：`mainline.md`（全书写法/主线）、`recap.md`（前情，一行一条）、`beats/ch_XXXX.md`（该章节拍，如 `ch_0007.md`）。缺文件不是错误：会出现在注入清单的 `skipped` 里，作者据此知道该补什么。请求里直接传 `beat`/`mainline`/`recap` 文本可覆盖文件。 |
+| **装配器与注入清单** | 上下文一律经 `writer/context_builder.py` 按槽位装配（`Slot(priority=PINNED)` 永不裁剪、数值越大越先裁；两级预算：槽位 `max_tokens` 截断 + 全局 `budget_tokens` 裁整槽）。新增数据源 = 注册 provider + 声明槽位，**不要**在生成函数里手拼 prompt。`context_manifest` 必须与真正注入的文本一一对应，并随 SSE `done` 载荷下发（`/api/generate/chapter/v2`）。 |
 | **配置** | `core/config.py::_LLMModelConfig` 是白名单：新增配置字段必须同时加进模型，否则会被 `model_dump()` **静默剥离**。 |
 | **配置路径覆盖** | `STORY_CONFIG_PATH=<file>` 覆盖 `core/config.py::DEFAULT_CONFIG_PATH`（浏览器 E2E / 多环境用）。生产环境别设，否则配置静默漂移。 |
 | **前端字段命名** | 后端 `APIModel` 兼容 camelCase/snake_case（`alias_generator=to_camel`）。 |

@@ -13,7 +13,7 @@
 
   R1 一条 SSE 流最多一个 `done`；生成器不 yield done 时由包装层补一个。
   R2 生成器 yield 的 done **载荷字段原样保留**（`chapter`、后续的
-     `injection_manifest` 等）。
+     `context_manifest` 等）。
   R3 `done` 之后不再下发任何事件（token/error/done），重复的 done 被去重。
   R4 出现 `error` 事件的流**不得**再有 `done`（错误不是成功）。
 """

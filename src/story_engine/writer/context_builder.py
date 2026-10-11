@@ -78,15 +78,24 @@ class Slot:
 
 @dataclass
 class ContextPiece:
-    """provider 返回的一段内容（`source` 用于 manifest 溯源，如 `summary:ch_0001`）。"""
+    """provider 返回的一段内容（`source` 用于 manifest 溯源，如 `summary:ch_0001`）。
+
+    `truncated`：provider **自己**做了截断时必须置真（例：上一章结尾只取最后 2000 字）。
+    评审 P1-3：截断发生在 provider 内部时，槽位级预算看不到，作者会以为"全文都注入了"。
+    """
 
     text: str
     source: str
+    truncated: bool = False
 
 
 @dataclass
 class ManifestEntry:
-    """"这一段是从哪来的、有多大"。"""
+    """"这一段是从哪来的、有多大"。
+
+    注意（评审 P2-9）：`tokens` 只算这一段本身的文本，**不含**槽位间分隔符（`"\\n\\n"`）
+    与 bullets 的 `"- "`；因此按 slot_id 汇总会略小于 `total_tokens`（是下界）。
+    """
 
     slot_id: str
     source: str
@@ -325,7 +334,8 @@ class ContextBuilder:
                         chars=len(piece.text),
                         tokens=estimate_tokens(piece.text),
                         priority=slot.priority,
-                        truncated=i in truncated_idx,
+                        # provider 自报的截断（P1-3）与槽位预算截断（P0-1 系列）都要留痕
+                        truncated=piece.truncated or i in truncated_idx,
                     )
                 )
 

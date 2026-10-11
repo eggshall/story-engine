@@ -15,7 +15,7 @@
   R1 一条流**最多一个** `done`。生成器自己 yield 了 done（如章节生成携带
      `chapter`），包装层就**不再补发**；生成器没 yield，包装层补一个
      `{"done": true}`。
-  R2 生成器 yield 的 done **载荷字段原样保留**（`chapter`、`injection_manifest` 等），
+  R2 生成器 yield 的 done **载荷字段原样保留**（`chapter`、`context_manifest` 等），
      包装层只负责转发，不裁剪。
   R3 `done` 之后不再下发任何事件（重复 done / token / error 一律丢弃并告警）。
      理由：前端读到第一个 done 就收尾，之后的事件没有任何接收方，只会掩盖

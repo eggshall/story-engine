@@ -19,6 +19,23 @@ class APIModel(BaseModel):
 _MODE_RE = r"^(chat|write)$"
 
 
+class ChapterV2Request(APIModel):
+    """装配器版章节生成请求（N4b）。
+
+    用请求体而不是 query string：手写的 `beat`/`mainline`/`recap` 可能很长，
+    塞进 URL 会撞请求行长度上限（评审 P2-4）。
+    """
+
+    novel_id: str = Field(min_length=1, description="小说 ID")
+    chapter_number: int = Field(default=1, ge=1)
+    chapter_title: str = ""
+    model: str = Field(default="", description="模型名称，为空使用默认")
+    profile_id: str = Field(default="", description="文风画像 ID（可选）")
+    beat: str = Field(default="", description="本章节拍（手写；留空则读 beats/ch_XXXX.md）")
+    mainline: str = Field(default="", description="主线（手写；留空则读 mainline.md）")
+    recap: str = Field(default="", description="前情（手写；留空则读 recap.md）")
+
+
 class ChatRequest(APIModel):
     """AI 对话请求"""
     messages: List[Dict[str, str]] = Field(min_length=1, description="消息列表 [role, content]")

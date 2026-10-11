@@ -11,7 +11,7 @@ import anyio
 from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
 
-from story_engine.api.schemas import ApiResponse, ChatRequest
+from story_engine.api.schemas import ApiResponse, ChapterV2Request, ChatRequest
 from story_engine.api.sse import done_payload, error_payload, event_stream
 from story_engine.characters.manager import list_cards, load_card
 from story_engine.core.config import get_config
@@ -225,6 +225,117 @@ async def _stream_chapter(engine, ch_num: int, title: str, model: str, novel: No
     # N2：结果（后端权威章节记录）随 done 载荷下发，前端据此拿到标题/字数与
     # 后续要挂上的注入清单；且这条 done 之后 event_stream 不会再补第二个。
     yield done_payload(chapter=chapter.model_dump(exclude_none=True))
+
+
+@router.post("/chapter/v2")
+async def generate_chapter_v2(req: ChapterV2Request):
+    """装配器版章节生成（N4b）：注入清单随 done 载荷返回，作者可核"这次注入了什么"。
+
+    与 `/chapter` 的区别：
+    - 不做自动大纲；**节拍/主线/前情是手写的**（MVP-2 边界，见计划书 §2.1/§3）：
+      缺省从小说目录读 `mainline.md` / `recap.md` / `beats/ch_XXXX.md`，也可由请求体直接传文本；
+    - 上下文由装配器按槽位拼装（含上一章结尾、角色卡、风格块），并做两级预算裁剪；
+    - done 载荷 = `{chapter, context_manifest}`（`context_manifest` 是**唯一**的对外键名，
+      历史文档里的 `injection_manifest` 已废弃）—— manifest 与真正注入的文本一一对应。
+    """
+    novel_id = req.novel_id
+    novel = await anyio.to_thread.run_sync(_load_novel, novel_id)
+    if not novel:
+        return ApiResponse(success=False, message=f"小说 '{novel_id}' 不存在")
+
+    card_names = await anyio.to_thread.run_sync(list_cards)
+    for name in card_names:
+        card = await anyio.to_thread.run_sync(load_card, name)
+        if card:
+            novel.characters[name] = card
+
+    # 风格块：profile_id 优先（与 /chat 同一套渲染）
+    style_block = ""
+    if req.profile_id:
+        from story_engine.style.analyzer import StyleAnalyzer
+        from story_engine.style.db import StyleDb
+
+        profile = StyleDb().get_profile(req.profile_id)
+        if profile:
+            style_block = StyleAnalyzer.render_style_block(profile)
+        else:
+            logger.warning("文风画像不存在: %s", req.profile_id)
+
+    return EventSourceResponse(
+        event_stream(
+            _stream_chapter_v2(novel, novel_id, req.chapter_number, req.chapter_title, req.model,
+                               style_block, req.beat, req.mainline, req.recap)
+        )
+    )
+
+
+async def _stream_chapter_v2(novel: Novel, novel_id: str, ch_num: int, title: str, model: str,
+                             style_block: str, beat: str, mainline: str, recap: str):
+    """装配 → 流式生成 → 保存章节 → done 载荷带注入清单（N4b）"""
+    from story_engine.core.models import Chapter
+    from story_engine.writer.context_sources import build_novel_builder
+
+    builder = build_novel_builder(
+        novel,
+        novel_id,
+        chapter_number=ch_num,
+        style_block=style_block,
+        mainline_text=mainline,
+        beat_text=beat,
+        recap_text=recap,
+    )
+    assembled = await anyio.to_thread.run_sync(builder.build, {"novel_id": novel_id,
+                                                              "chapter_number": ch_num})
+
+    prompt = f"""请续写小说《{novel.title}》第{ch_num}章{'「' + title + '」' if title else ''}。
+
+{assembled.text}
+
+写作要求：
+1. 严格按【本章节拍】推进，不要引入节拍之外的新设定
+2. 保持角色性格与文风一致
+3. 每段不超过300字
+4. 章节末尾留悬念"""
+    logger.info(
+        "章节生成(v2) | novel=%s ch=%s 注入槽位=%s 注入token=%s 预算=%s 裁剪=%s 跳过=%s",
+        novel_id, ch_num, len(assembled.manifest.entries), assembled.manifest.total_tokens,
+        assembled.manifest.budget_tokens, [d.slot_id for d in assembled.manifest.dropped],
+        [s.reason for s in assembled.manifest.skipped],
+    )
+
+    req = LLMRequest(
+        system_prompt="你是一位专业的网络小说作家。",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.8,
+        task=TASK_GENERATE,
+        # 与 /chapter 的 `word_estimate * 2` 不同：v2 的节拍是手写的、没有字数估算，
+        # 固定 8192 给够一次章节的余量（装配器已把输入压到预算内，不需要再按大纲缩放）
+        max_tokens=8192,
+    )
+
+    router = _get_router()
+    full_content = ""
+    gen = router.chat_stream(req, model_name=model or None)
+    try:
+        async for token in gen:
+            full_content += token
+            yield token
+    finally:
+        if hasattr(gen, "aclose"):
+            await gen.aclose()
+
+    chapter = Chapter(
+        chapter_number=ch_num,
+        title=title or f"第{ch_num}章",
+        content=full_content,
+        model_used=model or "default",
+        word_count=len(strip_fallback_prefix(full_content)),
+    )
+    novel.chapters.append(chapter)
+    await anyio.to_thread.run_sync(_save_novel, novel, novel_id)
+
+    yield done_payload(chapter=chapter.model_dump(exclude_none=True),
+                       context_manifest=assembled.manifest.to_dict())
 
 
 @router.post("/chat")

@@ -49,7 +49,7 @@ export function apiUrl(path: string): string {
  * 后端格式: event: token / event: done / event: error
  *
  * N2 契约：`done` 事件是**唯一的结果收尾信号**，其 data 载荷（如章节生成的
- * `chapter`、后续的 `injection_manifest`）通过 `onDone(payload)` 交给调用方；
+ * `chapter`、后续的 `context_manifest`）通过 `onDone(payload)` 交给调用方；
  * 读到第一个 `done` 即结束（后端保证只发一个，客户端再兜一层防御）。
  */
 async function* readSSE<T = string>(

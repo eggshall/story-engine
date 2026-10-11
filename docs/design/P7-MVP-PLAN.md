@@ -62,7 +62,7 @@
 |---|---|---|---|
 | 1.1 | 调用契约：按任务类型传 `thinking`（生成/抽取 = disabled，规划 = enabled）与显式 `temperature`；config 驱动 | `llm/api_client.py`、`core/config.py`、`config/config.yaml` | 单测：请求体含 `{"thinking":{"type":"disabled"}}` 且不含 `reasoning_effort` |
 | 1.2 | 空产出保护：`content` 为空/纯空白 → 抛 `LLMEmptyResponse`，路由层重试 1 次并记录 | `llm/base.py`、`llm/router.py` | 单测：mock 返回 reasoning-only → 抛错 + 重试；mock 两次空 → 明确失败（不静默） |
-| 1.3 | 注入清单（最小版）：生成时记录"用了哪些片段、各占多少 token"，随响应返回并在日志留痕 | `llm/router.py` / `api/routes/generate.py` | 调用生成接口，响应里能看到 `injection_manifest` 列表（含来源与字符数） |
+| 1.3 | 注入清单（最小版）：生成时记录"用了哪些片段、各占多少 token"，随响应返回并在日志留痕 | `llm/router.py` / `api/routes/generate.py` | 调用生成接口，响应里能看到 `context_manifest` 列表（含来源与字符数） |
 | 1.4 | 真实回归：用 v4-pro 与 flash 各生成一段 300 字，断言非空且 `reasoning_tokens=0` | `tests/test_llm/`（新增） | `pytest tests/test_llm -q` 全绿 |
 
 **不做**：不改前端、不改生成提示词、不动现有接口字段（只**新增**返回字段）。
@@ -170,6 +170,13 @@
 其余随期间处理的评审项：token 计数（P0-5）、覆盖率门禁（每模块随码交付测试）、漂移基线来源
 （2.2 明确基线来自风格画像或前序章节，无基线时返回 `ok`/`skipped` 而非误报 alert）。
 
+**命名统一（N4b 定）**：注入清单在 done 载荷里的字段名一律为 **`context_manifest`**
+（N2/N4b 实现的键名）。历史评审报告 `P7-MVP-REVIEW.md` 里出现的 `injection_manifest` 是当时的
+提案名，已废弃；代码注释、AGENTS.md、本计划书均已改齐，避免前端按旧名取值拿到 `undefined`。
+
+**后续待办（N4b 评审 P2）**：`context_manifest` 目前只随 done 载荷下发（刷新页面即丢）。
+N5/N6 把它随章节落盘（旁路文件或 SQLite），让"当时注入了什么"可长期回看。
+
 ## 9. 开发流程与评审约定（本项目强制，每个节点都必须走完）
 
 ### 9.1 节点划分（每个节点 = 一次可独立评审的交付）
@@ -181,7 +188,7 @@
 | **N1** | 调用契约（`thinking`/显式温度/空产出守卫）+ 既有冲突测试改写 | N0 |
 | **N2** ✅ | SSE 单一 `done` + 载荷契约（后端 `sse.py`/`generate.py` + 前端 `readSSE.onDone(payload)`） | N1 |
 | **N3** ✅ | config schema 放行 `thinking`/`task` 字段（含"不被静默剥离"的断言） | N1 |
-| **N4** | 装配器 v0：槽位注册表 `Slot(slot_id, priority, provider, renderer)` + `ContextManifest` + 预算裁剪 | N2/N3 |
+| **N4** ✅ | 装配器 v0（拆为 N4a 槽位注册表 `Slot(...)` + `ContextManifest` + 两级预算 / N4b 真实数据源 + `POST /api/generate/chapter/v2` + 注入清单上 done 载荷） | N2/N3 |
 | **N5** | A 类校验器 5 条 + `api/routes/check.py`（含漂移无基线时返回 ok/skipped 的行为） | N4 |
 | **N6** | 审稿页（路由 + 导航注册 + 三栏 + 带指令重写） | N4/N5 |
 | **N7** | 章摘要 + SQLite（走 `_novel_dir`）+ 装配接入 + 离线串行队列 | N4 |
