@@ -33,3 +33,8 @@ coverage.xml
 # ── 项目级 E2E 产物（Playwright，N0.5 起 e2e/ 在项目根）──
 /e2e/test-results/
 /e2e/playwright-report/
+# 防御：Playwright 在旧位置/cwd 落产物时同样忽略
+/test-results/
+/test-results*/
+src/frontend/test-results/
+src/frontend/playwright-report/

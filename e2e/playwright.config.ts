@@ -17,6 +17,8 @@ const hasCached = existsSync(CACHED_CHROMIUM)
 export default defineConfig({
   testDir: '.',
   testMatch: '**/*.e2e.ts',
+  // 产物固定落在 e2e/test-results（相对本配置文件），避免因 cwd 不同散落到项目根
+  outputDir: './test-results',
   timeout: 90_000,
   expect: { timeout: 15_000 },
   reporter: [['list']],
