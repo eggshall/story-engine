@@ -230,6 +230,11 @@
 - 现有全局示例数据（`林晓月`、`天玄大陆`）删除。
 - 背景：前端"角色卡"页当前是**纯内存态**（`stores/characters.ts` 无持久化、无 API），
   刷新即丢且与生成用的数据不是同一份 —— N8 一并修掉。
+- **陷阱（写代码时必须遵守）**：角色卡/设定集只能经
+  `load_novel → 改模型 → save_novel` 保存。`novel_storage._write_files` 每次保存都会
+  **先清空再重建** `characters/`、`lore/` 目录，绕过模型直接往镜像目录写文件，
+  会在下一次保存章节时被整目录清空（作者眼里是"卡莫名其妙没了"）。
+  回归用例：`tests/test_characters/test_novel_scoped_cards.py::test_card_survives_chapter_save`。
 
 ### 9.2 每个节点的固定流程（测试先行，缺一步不算完成）
 
