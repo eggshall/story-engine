@@ -9,6 +9,7 @@ from typing import Any, AsyncGenerator, Dict, Optional
 import httpx
 
 from story_engine.llm.base import (
+    TASK_GENERATE,
     BaseLLM,
     LLMEmptyOutputError,
     LLMRequest,
@@ -41,6 +42,9 @@ class OpenAIClient(BaseLLM):
         # 统一读取 read_timeout / connect_timeout（兼容旧 timeout 字段）
         self.read_timeout = config.get("read_timeout") or config.get("timeout", 60)
         self.connect_timeout = config.get("connect_timeout", 10)
+        # N3：模型级默认任务与思考覆盖（config 驱动；优先级见 _build_payload）
+        self.default_task = config.get("task") or ""
+        self.thinking_override = config.get("thinking") or None
         self._client: Optional[httpx.AsyncClient] = None
 
     def _get_client(self) -> httpx.AsyncClient:
@@ -73,25 +77,36 @@ class OpenAIClient(BaseLLM):
         )
 
     def _build_payload(self, request: LLMRequest, stream: bool = False) -> Dict[str, Any]:
-        """按任务类型构建请求体（N1 调用契约）。
+        """按任务类型构建请求体（N1 调用契约 + N3 配置优先级）。
+
+        优先级（N3）::
+
+            请求级 request.task（显式非空）
+              > 模型配置 task（构造本客户端时传入的 cfg["task"]）
+              > 默认 "generate"
 
         - generate/extract：关闭思考 + 发送 temperature（思考模式下 temperature 无效）
         - plan：开启思考，且**不**发送 temperature（发了也不生效，避免误导）
+        - 模型配置 `thinking` 显式给出时**优先**于上面的推导（可强制关/开思考）
         - `thinking` 仅发给支持该字段的 provider（见 _THINKING_CAPABLE_PROVIDERS）
         - 一律不发送 reasoning_effort（与 disabled 共存会被 API 拒绝）
         """
+        task = request.task or self.default_task or TASK_GENERATE
+        thinking_disabled = task in _NO_THINKING_TASKS
+        if self.thinking_override is not None:
+            thinking_disabled = self.thinking_override.get("type") == "disabled"
+
         payload: Dict[str, Any] = {
             "model": self.model_id,
             "messages": self.format_messages(request.system_prompt, request.messages),
             "max_tokens": request.max_tokens,
         }
-        thinking_capable = self.provider in _THINKING_CAPABLE_PROVIDERS
-        if request.task in _NO_THINKING_TASKS:
-            if thinking_capable:
-                payload["thinking"] = {"type": "disabled"}
+        if self.provider in _THINKING_CAPABLE_PROVIDERS:
+            payload["thinking"] = self.thinking_override or {
+                "type": "disabled" if thinking_disabled else "enabled"
+            }
+        if thinking_disabled:
             payload["temperature"] = request.temperature
-        elif thinking_capable:
-            payload["thinking"] = {"type": "enabled"}
         if request.stop:
             payload["stop"] = request.stop
         if stream:

@@ -16,7 +16,7 @@ from story_engine.api.sse import done_payload, error_payload, event_stream
 from story_engine.characters.manager import list_cards, load_card
 from story_engine.core.config import get_config
 from story_engine.core.models import Novel
-from story_engine.llm.base import LLMRequest
+from story_engine.llm.base import TASK_GENERATE, LLMRequest
 from story_engine.llm.router import ModelRouter
 from story_engine.tools.prompts import get_system_prompt
 from story_engine.tools.web_search import format_search_context, search_web
@@ -303,6 +303,9 @@ async def chat_completion(req: ChatRequest):
         system_prompt=system_prompt,
         messages=req.messages,
         temperature=req.temperature,
+        # N3 评审 P1-1：自由对话也是正文（可能整段成文）→ 显式声明任务类型，
+        # 不让"模型配置的 task"悄悄把关思考的模式带到这条链路上
+        task=TASK_GENERATE,
         max_tokens=req.max_tokens,
     )
 
@@ -365,6 +368,8 @@ async def depolish_chapter(novel_id: str = "", chapter_number: int = 1,
         system_prompt=deai_prompt,
         messages=[{"role": "user", "content": text}],
         temperature=0.7,
+        # N3 评审 P1-1：去 AI 味是改写正文 → 同样显式关思考
+        task=TASK_GENERATE,
         max_tokens=4096,
     )
 

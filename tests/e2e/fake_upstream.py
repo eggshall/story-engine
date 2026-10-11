@@ -57,6 +57,8 @@ class _UpstreamHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         server = self.server
+        if getattr(server, "delay", 0):  # 慢上游：用于验证"请求级/模型级超时真的生效"
+            time.sleep(server.delay)  # type: ignore[attr-defined]
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length).decode("utf-8") if length else ""
         try:
@@ -129,8 +131,13 @@ class FakeUpstream:
         self.server.requests = []  # type: ignore[attr-defined]
         self.server.mode = "empty"  # type: ignore[attr-defined]
         self.server.verbose = verbose  # type: ignore[attr-defined]
+        self.server.delay = 0.0  # type: ignore[attr-defined]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+
+    def set_delay(self, seconds: float) -> None:
+        """让上游在响应前先睡 `seconds`（配合模型级 read_timeout 验证超时是否真的生效）。"""
+        self.server.delay = seconds  # type: ignore[attr-defined]
 
     @property
     def port(self) -> int:
@@ -165,13 +172,41 @@ def write_config(
     upstream_base: str,
     api_key: str,
     model_name: str = "fake",
+    models: List[Dict[str, Any]] | None = None,
 ) -> Path:
-    """写临时 config.yaml：鉴权 key + 一个指向假上游的模型。
+    """写临时 config.yaml：鉴权 key + 指向假上游的模型。
 
     provider 用 `deepseek` 是为了走 `OpenAIClient`（与线上远程模型同一条代码路径，
     包括 thinking 字段与流式解析）。
+
+    `models` 给定时按给定条目建（用于构造"每模型不同 read_timeout"这类场景）；
+    缺省字段由 base_url/api_key/provider 补齐。
     """
     import yaml
+
+    if models is None:
+        entries: List[Dict[str, Any]] = [
+            {
+                "name": model_name,
+                "provider": "deepseek",
+                "model_id": "fake-model",
+                "base_url": upstream_base,
+                "api_key": "upstream-key",
+                "enabled": True,
+            }
+        ]
+    else:
+        entries = [
+            {
+                "provider": "deepseek",
+                "model_id": "fake-model",
+                "base_url": upstream_base,
+                "api_key": "upstream-key",
+                "enabled": True,
+                **m,
+            }
+            for m in models
+        ]
 
     path = tmp_path / "config.yaml"
     path.write_text(
@@ -179,17 +214,8 @@ def write_config(
             {
                 "security": {"api_key": api_key},
                 "llm": {
-                    "default_model": model_name,
-                    "models": [
-                        {
-                            "name": model_name,
-                            "provider": "deepseek",
-                            "model_id": "fake-model",
-                            "base_url": upstream_base,
-                            "api_key": "upstream-key",
-                            "enabled": True,
-                        }
-                    ],
+                    "default_model": entries[0]["name"],
+                    "models": entries,
                 },
             },
             allow_unicode=True,

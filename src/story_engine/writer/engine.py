@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 
 from story_engine.core.config import data_dir
 from story_engine.core.models import Chapter, ChapterOutline, CharacterCard, Novel
-from story_engine.llm.base import LLMRequest
+from story_engine.llm.base import TASK_GENERATE, LLMRequest
 from story_engine.llm.router import ModelRouter
 from story_engine.lore.lorebook import build_lore_context
 
@@ -199,6 +199,9 @@ class WritingEngine:
             system_prompt=DEFAULT_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.8,
+            # N3 评审 P1-1：正文生成必须**显式**声明任务类型，不能依赖"模型配置的默认 task"——
+            # 否则某个模型配了 task: plan 就会让正文端点悄悄开思考（reasoning 吃满 max_tokens → 空产出）
+            task=TASK_GENERATE,
             max_tokens=outline.word_estimate * 2,
         )
 
@@ -242,6 +245,8 @@ class WritingEngine:
                 system_prompt=f"你是草稿生成助手。快速输出版本{i+1}。",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.9 + i * 0.1,
+                # N3 评审 P1-1：草稿也是正文（max_tokens 只有 1000，最怕 reasoning 抢预算）
+                task=TASK_GENERATE,
                 max_tokens=1000,
             )
 

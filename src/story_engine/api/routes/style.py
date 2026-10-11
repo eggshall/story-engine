@@ -234,13 +234,15 @@ async def generate_with_style(req: StyleGenerateRequest):
 
     router_inst = _get_router()
 
-    from story_engine.llm.base import LLMRequest
+    from story_engine.llm.base import TASK_GENERATE, LLMRequest
 
     async def _stream_style() -> AsyncGenerator[str, None]:
         request = LLMRequest(
             messages=chat_req.messages,
             system_prompt=chat_req.system_prompt,
             temperature=chat_req.temperature,
+            # N3 评审 P1-1：带文风写作是正文生成 → 显式关思考（不依赖模型配置的默认 task）
+            task=TASK_GENERATE,
             max_tokens=chat_req.max_tokens,
         )
         gen = router_inst.chat_stream(request, model_name=req.model or None)

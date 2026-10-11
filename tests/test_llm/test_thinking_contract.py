@@ -84,7 +84,9 @@ class TestThinkingContract:
         http = _mock_chat(client, {"content": "正文"})
 
         req = LLMRequest(messages=[{"role": "user", "content": "写"}], temperature=0.8)
-        assert req.task == "generate"
+        # N3 起 `task` 默认是空串 = "未指定"，由模型配置/默认值解析成 generate；
+        # 这里断言**解析后的行为**（原来断言属性 == "generate" 只是记住了旧默认值）。
+        assert req.task == ""
         result = asyncio.run(client.chat(req))
 
         payload = http.post.call_args.kwargs["json"]

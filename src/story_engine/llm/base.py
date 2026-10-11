@@ -25,12 +25,14 @@ class LLMRequest:
     # 任务类型 —— 决定思考模式与温度语义（见 llm/api_client.py 的调用契约）:
     #   generate 创作 / extract 结构化抽取 → 关闭思考 + 显式 temperature
     #   plan 规划推理 → 开启思考（此时 temperature 无意义，不发送）
-    task: str = "generate"
+    #   空串 "" = **未指定**：由模型配置的 task 决定，最后才回退 "generate"（N3 优先级）
+    task: str = ""
 
     def __post_init__(self) -> None:
         # 白名单校验：拼错/未知的 task 必须立刻炸，否则会静默退回"开思考 + 丢温度"
         # —— 那正是 N1 要消灭的行为（评审 P1-2）。
-        if self.task not in VALID_TASKS:
+        # 空串是合法状态（"未指定"，交给模型配置/默认值解析），不在此列。
+        if self.task and self.task not in VALID_TASKS:
             raise ValueError(
                 f"未知 task={self.task!r}，允许值: {sorted(VALID_TASKS)}"
                 "（不接受静默退回思考模式）"

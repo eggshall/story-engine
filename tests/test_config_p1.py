@@ -64,12 +64,20 @@ class TestConfigLoad:
         assert _validate_models({"name": "x"}) == []
 
     def test_validate_models_defaults_filled(self):
-        """合法条目应填充默认字段（model_dump）"""
+        """合法条目应填充默认字段（model_dump）
+
+        N3 起默认集合多了 `weight`（新增的已知字段）；未设置的可选字段
+        （timeouts/task/thinking）用 `exclude_none=True` 保持"没写就是不写"。
+        """
         parsed = _validate_models([{"name": "m", "provider": "local"}])
         assert parsed == [{
             "name": "m", "provider": "local", "model_id": "", "base_url": "",
             "api_key": "", "enabled": True, "temperature": 0.7, "max_tokens": 4096,
+            "weight": 1,
         }]
+        # 可选字段不得以 None 形式出现（否则 api_client 的"缺省→回退全局"判断会失效）
+        assert "read_timeout" not in parsed[0]
+        assert "task" not in parsed[0]
 
     def test_oserror_load_falls_back(self, monkeypatch, tmp_path):
         """读取失败（路径为目录）回退为空配置而非崩溃"""
