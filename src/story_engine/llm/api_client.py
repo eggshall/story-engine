@@ -8,13 +8,24 @@ from typing import Any, AsyncGenerator, Dict, Optional
 
 import httpx
 
-from story_engine.llm.base import BaseLLM, LLMRequest, LLMResponse, LLMStreamError
+from story_engine.llm.base import (
+    BaseLLM,
+    LLMEmptyOutputError,
+    LLMRequest,
+    LLMResponse,
+    LLMStreamError,
+)
 
 # 任务类型 → 思考模式策略（N1 调用契约）
 # 实测（2026-10）：DeepSeek 思考模式默认开启（effort=high），reasoning_tokens 会吃掉 max_tokens
 # （max_tokens=8000 时 content 仍为空字符串，HTTP 却是 200），且思考模式下 temperature 被静默忽略。
 # 因此创作/抽取类任务显式关闭思考，规划类任务保留思考。
 _NO_THINKING_TASKS = {"generate", "extract"}
+
+# 只有这些 provider 的接口接受 DeepSeek 风格的 `thinking` 字段（评审 P2-1）。
+# 其他 OpenAI 兼容服务（DashScope 用 enable_thinking、部分第三方直接拒未知字段）**不发**该字段，
+# 否则可能是 400 —— 乱发比不发更危险。temperature 语义与 provider 无关，照常发。
+_THINKING_CAPABLE_PROVIDERS = {"deepseek"}
 
 
 class OpenAIClient(BaseLLM):
@@ -66,6 +77,7 @@ class OpenAIClient(BaseLLM):
 
         - generate/extract：关闭思考 + 发送 temperature（思考模式下 temperature 无效）
         - plan：开启思考，且**不**发送 temperature（发了也不生效，避免误导）
+        - `thinking` 仅发给支持该字段的 provider（见 _THINKING_CAPABLE_PROVIDERS）
         - 一律不发送 reasoning_effort（与 disabled 共存会被 API 拒绝）
         """
         payload: Dict[str, Any] = {
@@ -73,10 +85,12 @@ class OpenAIClient(BaseLLM):
             "messages": self.format_messages(request.system_prompt, request.messages),
             "max_tokens": request.max_tokens,
         }
+        thinking_capable = self.provider in _THINKING_CAPABLE_PROVIDERS
         if request.task in _NO_THINKING_TASKS:
-            payload["thinking"] = {"type": "disabled"}
+            if thinking_capable:
+                payload["thinking"] = {"type": "disabled"}
             payload["temperature"] = request.temperature
-        else:
+        elif thinking_capable:
             payload["thinking"] = {"type": "enabled"}
         if request.stop:
             payload["stop"] = request.stop
@@ -110,6 +124,7 @@ class OpenAIClient(BaseLLM):
                     provider=self.provider,
                     model=model,
                     usage=usage,
+                    empty_output=True,
                     error=f"模型返回空产出（content 为空）{hint}",
                 )
             return LLMResponse(
@@ -148,7 +163,8 @@ class OpenAIClient(BaseLLM):
                             delta = chunk.get("choices", [{}])[0].get("delta", {})
                             content = delta.get("content", "")
                             if content:
-                                yielded_chars += len(content)
+                                # 只算非空白字符：纯空白 token 不算正文（评审 P2-3）
+                                yielded_chars += len(content.strip())
                                 yield content
                         except json.JSONDecodeError:
                             continue
@@ -160,7 +176,7 @@ class OpenAIClient(BaseLLM):
         if yielded_chars == 0:
             # 流式零 token：思考模式耗尽预算或上游异常，必须显式失败
             # （否则 router 会把空流当成功，SSE 层还会发 done，前端拿到空正文）
-            raise LLMStreamError(
+            raise LLMEmptyOutputError(
                 "模型返回空产出（流式零 token）：reasoning_tokens 可能占满了 max_tokens，"
                 "请提高 max_tokens 或使用 task='generate' 关闭思考"
             )

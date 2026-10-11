@@ -1,4 +1,9 @@
-"""测试：远程 API 客户端 — 超时配置注入 / reasoning 回退 / 错误处理"""
+"""测试：远程 API 客户端 — 超时配置注入 / 空产出判定 / 错误处理
+
+注意（N1 起）：原先"content 为空时回退 reasoning_content 并判成功"的行为**已废除**，
+推理内容不再当作正文；相关用例改为 `TestReasoningNoLongerFallsBack`，
+思考模式/温度/空产出的完整契约见 tests/test_llm/test_thinking_contract.py。
+"""
 
 import asyncio
 import json

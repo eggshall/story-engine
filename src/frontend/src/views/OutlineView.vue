@@ -71,6 +71,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { MagicStick, Plus, Delete } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { useNovelStore } from '../stores/novel'
 import { generateOutlineStream } from '../utils/api'
 
@@ -121,6 +122,9 @@ async function generateOutline() {
     for await (const token of generateOutlineStream({ novel_id: selectedNovelId.value })) {
       // 逐步累积
     }
+  } catch (err: any) {
+    // N1 评审 P1-6：后端 event: error 会让流抛错，必须让用户看到原因（原来是静默失败）
+    ElMessage.error(`大纲生成失败: ${err?.message || err}`)
   } finally {
     generating.value = false
   }

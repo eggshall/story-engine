@@ -330,9 +330,33 @@ async function generateChapter() {
         novelStore.currentChapter.content += token
       }
     }
-    await novelStore.saveCurrentChapter()
+    // 只有真的产出正文才落盘（N1 评审 P1-6：空产出/报错不能存成空章节或错误正文）
+    if ((novelStore.currentChapter?.content || '').trim()) {
+      await novelStore.saveCurrentChapter()
+    } else {
+      await rollbackEmptyChapter(chNum)
+      ElMessage.error('生成失败：模型返回空产出，未写入章节')
+    }
+  } catch (err: any) {
+    // 后端以 event: error 报错（readSSE 抛 Error），此时占位章节要回滚，避免留下空章节
+    await rollbackEmptyChapter(novelStore.currentNovel?.chapter_count || 0)
+    ElMessage.error(`生成失败: ${err?.message || err}`)
   } finally {
     generating.value = false
+  }
+}
+
+/** 回滚刚刚创建的空占位章节（只在内容为空时删除） */
+async function rollbackEmptyChapter(chNum: number) {
+  const ch = novelStore.currentChapter
+  if (!ch || (ch.content || '').trim()) return
+  try {
+    if (novelStore.currentNovel && chNum > 0) {
+      await api.delete(`/novel/${novelStore.currentNovel.id}/chapters/${chNum}`)
+      novelStore.currentNovel.chapter_count = Math.max(chNum - 1, 0)
+    }
+  } catch {
+    // 回滚失败不阻断主流程：用户仍可手动删除
   }
 }
 

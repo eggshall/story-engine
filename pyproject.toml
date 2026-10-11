@@ -43,6 +43,7 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
     "live: 需要真实远程 API 的调用（默认跳过；设置 STORY_LIVE=1 才跑）",
+    "e2e: 真实 HTTP 端到端（uvicorn 真实 socket + 本地假上游，不依赖外网）",
 ]
 addopts = "--cov=story_engine --cov-report=term-missing --cov-fail-under=75"
 filterwarnings = [

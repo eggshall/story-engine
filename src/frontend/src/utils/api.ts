@@ -82,11 +82,15 @@ async function* readSSE<T = string>(
           return
         } else if (currentEvent === 'error') {
           const parsed = JSON.parse(raw)
+          const msg = parsed.error || '未知错误'
           if (onError) {
-            const result = onError(parsed.error || '未知错误')
+            const result = onError(msg)
             if (result !== null) yield result
           } else {
-            yield `\n[Error: ${parsed.error || '未知错误'}]` as unknown as T
+            // N1 评审 P1-6：错误文案**绝不能**当正文 yield 出去 ——
+            // 调用方（如 WritingView.generateChapter）会把 token 直接累加并落盘成章节正文，
+            // 于是"模型返回空产出…"会被存进小说里。默认抛错，由调用方 catch 后提示用户。
+            throw new Error(msg)
           }
           return
         }

@@ -28,10 +28,11 @@ story-engine/
 │   ├── tools/                 # novel_storage.py(每本小说独立目录) / memory_models.py(SoulMemory) / web_search.py / prompts.py
 │   ├── data_pipeline/         # 语料采集与清洗（Gutenberg 公版库、本地导入、繁转简）
 │   └── utils/                 # file_utils / url_utils
-├── src/frontend/              # 前端 Vue 3 + Vite（含 vitest 单测；E2E 见 §5）
+├── src/frontend/              # 前端 Vue 3 + Vite（含 vitest 单测）
 │   └── src/{views,components,stores,router,utils}/
-├── e2e/                       # ★ 浏览器 E2E（Playwright）—— 计划上移到项目根，见 §8
+├── e2e/                       # ★ 项目级浏览器 E2E（Playwright；依赖在根 package.json）
 ├── tests/                     # 后端 pytest（按域分子目录：test_llm/ test_writer/ test_lore/ ...）
+│   └── e2e/                   # 真实 HTTP + 鉴权的后端 E2E（uvicorn + 假上游，不花钱）
 ├── config/config.yaml         # 运行配置（模型、search.vpn_enabled、security.api_key 等）
 ├── data/                      # 运行期数据：novels/（每本一个目录）、style_profiles/、research/、exports/
 ├── docs/
@@ -59,9 +60,9 @@ npm run build          # vite build
 npx vitest run         # 单测
 npx vue-tsc --noEmit   # 类型检查
 
-# 浏览器 E2E（先起开发栈，再跑 Playwright）
-bash scripts/e2e_dev_stack.sh                 # 起后端(8000)+前端(5173) 并做 HTTP 鉴权校验
-cd src/frontend && npx playwright test --config e2e/playwright.config.ts
+# 浏览器 E2E（项目根；先起开发栈，再跑 Playwright）
+bash scripts/e2e_dev_stack.sh   # 起后端(8000)+前端(5173) 并做 HTTP 鉴权校验
+npm run e2e                     # = playwright test --config e2e/playwright.config.ts
 ```
 
 注意（本机环境特有）：
@@ -75,8 +76,8 @@ cd src/frontend && npx playwright test --config e2e/playwright.config.ts
 |---|---|
 | **鉴权头** | 后端在 `security.api_key` 已配置时对 `/api/*` 强制校验 `X-API-Key`（`/api/health` 除外）。前端所有请求必须带头：REST 走 `utils/api.ts` 的 axios 实例（拦截器注入），SSE 用 `sseHeaders()`。**新增任何请求路径都要带**。 |
 | **密钥来源与安全** | 前端密钥优先级：`localStorage['story_api_key']`（设置页运行时录入，`setApiKey()`）> 构建期 `import.meta.env.VITE_API_KEY`。生产部署**优先用设置页录入**——构建期注入会把密钥打进 `dist` bundle；localStorage 明文仅适用于本机单用户场景。切换密钥无需刷新，但已加载的数据需重新触发请求。 |
-| **SSE 契约** | 事件为 `token` / `done` / `error`；`EventSourceResponse` 只接受 dict（不要自己拼 `data:` 字符串）。前端 `readSSE` 逐 token 解析。 |
-| **模型调用** | 创作/抽取类走 `thinking: disabled` + 显式 temperature（思考模式下 temperature 会被静默忽略）；`content` 为空视为失败，不能当成功。 |
+| **SSE 契约** | 事件为 `token` / `done` / `error`；`EventSourceResponse` 只接受 dict（不要自己拼 `data:` 字符串）。前端 `readSSE` 逐 token 解析，**`error` 事件默认抛 `Error`（不能当正文 yield，否则会被存进章节）**，调用方负责 catch 后提示用户。 |
+| **空产出守卫** | 远程与本地客户端都必须受保护：守卫在 `router.py::_guard_nonempty_stream` / `_chat_with_retry`（provider 无关），本地客户端没有自己的守卫，新增客户端不要重复实现。 |
 | **每本小说目录** | 通过 `tools/novel_storage.py::_novel_dir(novel_id)` 取真实目录（支持自定义路径 + 索引），不要自己拼路径。 |
 | **配置** | `core/config.py::_LLMModelConfig` 是白名单：新增配置字段必须同时加进模型，否则会被 `model_dump()` **静默剥离**。 |
 | **前端字段命名** | 后端 `APIModel` 兼容 camelCase/snake_case（`alias_generator=to_camel`）。 |
@@ -87,10 +88,12 @@ cd src/frontend && npx playwright test --config e2e/playwright.config.ts
 - **测试先行**：先写会失败的测试，再实现。
 - 提交前必须全绿：`pytest -q`、`vitest run`、`ruff`、`mypy`、`vue-tsc --noEmit`、`vite build`。
 - **E2E 判定**：改了跨进程/跨层行为（HTTP、SSE、鉴权、文件落盘）就必须有 E2E；纯内部函数用单测。
-  - 后端：真实 app + 真实 HTTP（含鉴权头），SSE 要断言"逐 token + 单一 done + done 载荷字段"。
+  - 后端：真实 app + 真实 HTTP（含鉴权头）→ 放 `tests/e2e/`，用 uvicorn 起真实 socket + 本地"假上游"
+    （OpenAI 兼容 HTTP server）打真实请求，SSE 要断言"逐 token + 单一 done + done 载荷字段"。
+    `TestClient`（进程内 ASGI）算单测，不算 E2E。
   - 前端：关键路径必须有**真实浏览器**冒烟（Playwright，见 `e2e/`），复用已缓存 chromium
     （`~/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome`），不要重新下载浏览器。
-  - 真实模型调用标 `@pytest.mark.live`，默认不跑。
+  - 真实模型调用标 `@pytest.mark.live`，默认不跑（`STORY_LIVE=1` 才执行）。
 
 ## 6. 开发流程（每个节点都要走完，用户强制）
 
@@ -118,7 +121,7 @@ opencode run --agent <角色> "<提示词>"      # 角色: requirements / decomp
 
 ## 8. 待整理项（用户已提出，先行记录）
 
-1. **`e2e/` 目录上移到项目根**：当前在 `src/frontend/e2e/`，应移到根级 `e2e/`（更清晰；同时解决"E2E 混在前端包里"的问题），
-   并配套根级运行方式（或在 `scripts/` 里封装一条命令）。
+1. ~~**`e2e/` 目录上移到项目根**~~：**已完成（N0.5）** —— 浏览器 E2E 在根级 `e2e/`（依赖由根 `package.json` 管理，
+   运行 `npm run e2e`，开发栈 `npm run e2e:stack`）；后端真实 HTTP E2E 在 `tests/e2e/`（pytest）。
 2. **代码结构梳理**：目录职责与文件命名统一、清理无用产物（如 `.ipynb`/缓存）、按域拆分 `tests/` 与 `scripts/`。
 3. **本文件持续维护**：结构或约定变化时同步更新 `AGENTS.md`（它是 agent 的唯一入口）。

@@ -32,6 +32,18 @@ let base = ''
 let originalFetch: typeof fetch
 let seen: { headers: Record<string, string | string[] | undefined>; path: string }[] = []
 
+// N1：空产出时后端发的是 event: error（无 done），前端必须让作者看见原因。
+// 用 NL 拼接避免在测试源码里写转义换行。
+const NL = String.fromCharCode(10)
+const ERROR_BODY = [
+  'event: error',
+  'data: {"error":"模型返回空产出（流式零 token）"}',
+  '',
+  '',
+].join(NL)
+
+let sseBody = SSE_BODY
+
 type StreamResponse = { ok: boolean; status: number; body: ReadableStream<Uint8Array> }
 
 /** 真实 HTTP 请求 + 把响应体包成 Web 流（供 readSSE 解析） */
@@ -77,7 +89,7 @@ beforeAll(async () => {
   server = createServer((req, res) => {
     seen.push({ headers: req.headers, path: req.url || '' })
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
-    res.end(SSE_BODY)
+    res.end(sseBody)
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const addr = server.address()
@@ -99,6 +111,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   seen = []
+  sseBody = SSE_BODY
   setApiKey(KEY)
 })
 
@@ -132,5 +145,27 @@ describe('N0 · SSE 真实 HTTP 硬断言（服务端视角）', () => {
 
     expect(seen).toHaveLength(1)
     expect(seen[0].headers['x-api-key']).toBeUndefined()
+  })
+})
+
+describe('N1 · 空产出的 error 事件在前端表现为异常（不落盘）', () => {
+  it('后端 event: error → 流以 Error 结束，绝不把错误文案当正文 yield 出去', async () => {
+    sseBody = ERROR_BODY
+
+    const err = await collect(generateChapterStream({ chapter_number: 1 })).then(
+      () => null,
+      (e: Error) => e,
+    )
+
+    expect(err).toBeInstanceOf(Error)
+    expect(err!.message).toContain('空产出')
+    // 关键：没有任何 token 被当成正文（否则 WritingView 会把它存进章节）
+    expect(seen).toHaveLength(1)
+    expect(seen[0].path).toBe('/api/generate/chapter')
+  })
+
+  it('对照：正常 token 流不会被误判为错误', async () => {
+    const tokens = await collect(generateChapterStream({ chapter_number: 1 }))
+    expect(tokens).toEqual(['你好', '世界'])
   })
 })

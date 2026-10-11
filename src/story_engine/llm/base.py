@@ -6,6 +6,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+# 任务类型白名单（N1 调用契约；见 llm/api_client.py）
+TASK_GENERATE = "generate"
+TASK_EXTRACT = "extract"
+TASK_PLAN = "plan"
+VALID_TASKS = frozenset({TASK_GENERATE, TASK_EXTRACT, TASK_PLAN})
+
 
 @dataclass
 class LLMRequest:
@@ -21,6 +27,15 @@ class LLMRequest:
     #   plan 规划推理 → 开启思考（此时 temperature 无意义，不发送）
     task: str = "generate"
 
+    def __post_init__(self) -> None:
+        # 白名单校验：拼错/未知的 task 必须立刻炸，否则会静默退回"开思考 + 丢温度"
+        # —— 那正是 N1 要消灭的行为（评审 P1-2）。
+        if self.task not in VALID_TASKS:
+            raise ValueError(
+                f"未知 task={self.task!r}，允许值: {sorted(VALID_TASKS)}"
+                "（不接受静默退回思考模式）"
+            )
+
 
 @dataclass
 class LLMResponse:
@@ -31,6 +46,9 @@ class LLMResponse:
     usage: Optional[Dict[str, int]] = None
     success: bool = True
     error: str = ""
+    # 空产出标记：模型"成功返回"但无正文（N1）。router 据此决定"重试 1 次"，
+    # 而不是靠匹配错误文案（评审 P1-4 需要机器可读的信号）。
+    empty_output: bool = False
 
 
 class LLMStreamError(Exception):
@@ -43,6 +61,15 @@ class LLMStreamError(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
         self.message = message
+
+
+class LLMEmptyOutputError(LLMStreamError):
+    """空产出：模型"正常返回"但没有任何正文内容/token。
+
+    单独成类，让 router 能区分空产出与其他错误 ——
+    空产出可以**重试 1 次**（多为思考模式耗尽 max_tokens 的瞬时问题），
+    网络/上游错误则直接 fallback（见 docs/design/P7-MVP-PLAN.md §1.2）。
+    """
 
 
 class BaseLLM(ABC):
