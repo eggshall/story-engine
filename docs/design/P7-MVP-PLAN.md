@@ -191,7 +191,7 @@
 | **N4** ✅ | 装配器 v0（拆为 N4a 槽位注册表 `Slot(...)` + `ContextManifest` + 两级预算 / N4b 真实数据源 + `POST /api/generate/chapter/v2` + 注入清单上 done 载荷） | N2/N3 |
 | **N5** ✅ | A 类校验器 5 条 + `api/routes/check.py`（含漂移无基线时返回 ok/skipped 的行为） | N4 |
 | **N6** ✅ | 审稿页（路由 + 导航注册 + 三栏 + 带指令重写）+ 注入清单落盘 `GET /api/check/manifest` | N4/N5 |
-| **N7** | 章摘要 + SQLite（走 `_novel_dir`）+ 装配接入 + 离线串行队列 | N4 |
+| **N7** 🚧 **设计待拍板** | 章摘要 + SQLite（走 `_novel_dir`）+ 摘要树（10/100 章）+ 装配接入 + 离线串行队列 —— **设计要点见 `docs/design/N7-DESIGN.md`**（三层物化 + 派生数据可直接落 SQLite + 串行队列 + 三个待拍板问题） | N4 |
 | **N8** 🚧 **⬅ 下一个（残项）** | 项目空间：角色卡/世界观**按小说绑定**（全局目录退役）+ 素材库（仅作复制来源）。**已落地**：角色卡 / 素材库 / 接口 / 前端（`08a8eab`）+ **世界观按书绑定 / 装配器 `lore` 槽位 / `lore/` 镜像语义**（本切片，见「N8 进度」末节）。**未做**：`/api/novel/{id}/lorebooks` 系列与素材库 lore 端点、`WorldView` 设定集区块、世界观浏览器 E2E | N6 |
 | **N9** ✅ | **伏笔账本 + 注入 + 校验（最小版）**：`novel.json` 增 `threads`；装配器挂 `threads` provider/槽位；A 类校验 2 条；`/api/novel/{id}/threads` CRUD。**不改装配器签名、不改 SSE 契约、不引入检索** —— 要点见 §9.1.1。**已落地**：提交 `387734b` + `f5418c9`，评审 `docs/design/reviews/N9-REVIEW.md`（无 P0，11 项全处置） | N8（世界观按书绑定） |
 
