@@ -262,6 +262,35 @@ describe('WorldView 条目 tab → 后端设定集', () => {
     expect(wrapper.text()).not.toContain('境界：筑基→金丹')
     expect(wrapper.find('.world-categories').text()).not.toContain('天玄大陆')
   })
+
+  it('迟到的设定集响应不许串书（A 的慢响应落地时不许覆盖 B 的内容）', async () => {
+    // 同一类竞态（地图侧已修过一次）：`loadBooks()` 在飞时换书 → 旧响应后到 →
+    // 把 B 的书目替换成 A 的。界面看起来"正常"，内容却是别人的。
+    let releaseA: (v: unknown) => void = () => {}
+    mockFetchNovelLorebooks.mockImplementation((id: string) => {
+      if (id === 'novel_b') {
+        return Promise.resolve([
+          { name: '乙书设定', entries: { b1: { keys: ['乙'], content: '乙书内容', priority: 50, enabled: true } } },
+        ])
+      }
+      return new Promise((r) => (releaseA = r)) // A 的响应挂住，稍后手动放行
+    })
+
+    const { wrapper, flushPromises } = await mountWorldView()
+    await flushPromises()
+
+    await wrapper.findComponent({ name: 'ElSelect' }).vm.$emit('update:modelValue', 'novel_b')
+    await flushPromises()
+    expect(wrapper.text()).toContain('乙书内容')
+
+    releaseA([
+      { name: '甲书设定', entries: { a1: { keys: ['甲'], content: '甲书内容', priority: 50, enabled: true } } },
+    ])
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('乙书内容')
+    expect(wrapper.text(), '迟到的 A 响应不该出现在 B 这本书里').not.toContain('甲书内容')
+  })
 })
 
 /**

@@ -148,4 +148,30 @@ describe('WorldView 地图 tab', () => {
 
     expect(wrapper.text()).toContain('未上传')
   })
+
+  it('迟到的地图响应不许覆盖作者刚选的本地预览图（竞态，E2E 抓到的）', async () => {
+    // 真实竞态：切到地图 tab → `loadMapData()` 在飞 → 作者期间选了本地图片 →
+    // 服务端响应**后**到（隔离数据目录首次访问更慢，所以是它先暴露的）→
+    // `mapImage = data.image_path || ''` 把预览清掉 → 界面退回"点击上传"占位符，
+    // 作者以为上传失败、E2E 卡在等 `.map-image-wrapper` 直到超时。
+    let release: (v: unknown) => void = () => {}
+    mockFetchNovelMap.mockReturnValue(new Promise((r) => (release = r)))
+    ;(URL as any).createObjectURL = vi.fn(() => 'blob:local-preview')
+
+    const { wrapper, flushPromises } = await mountWorldView()
+    await wrapper.find('[data-testid="tab-map"]').trigger('click')
+    await flushPromises() // 请求已发出、尚未返回
+
+    const input = wrapper.find('input[type="file"]')
+    const file = new File(['x'], 'map.png', { type: 'image/png' })
+    Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+    await input.trigger('change')
+
+    expect(wrapper.find('.map-image-wrapper').exists()).toBe(true)
+
+    release({ image_path: '', markers: [] }) // 迟到的响应
+    await flushPromises()
+
+    expect(wrapper.find('.map-image-wrapper').exists(), '迟到的响应不该清掉本机预览').toBe(true)
+  })
 })

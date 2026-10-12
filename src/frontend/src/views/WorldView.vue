@@ -594,15 +594,23 @@ async function removeLorebook() {
 }
 
 // ── 加载 ──
+/** 设定集加载的迟到响应守卫（与地图同一条规则：换了书或重发了请求，旧响应一律丢弃） */
+let booksLoadSeq = 0
+
 async function loadBooks() {
   if (!novelId.value) {
     books.value = []
     return
   }
+  const wanted = novelId.value
+  const seq = ++booksLoadSeq
   try {
-    books.value = await fetchNovelLorebooks(novelId.value)
+    const data = await fetchNovelLorebooks(wanted)
+    if (seq !== booksLoadSeq || wanted !== novelId.value) return
+    books.value = data
     errorMsg.value = ''
   } catch (e: any) {
+    if (seq !== booksLoadSeq || wanted !== novelId.value) return
     books.value = []
     errorMsg.value = errorDetail(e, '读取设定集失败')
   }
@@ -665,6 +673,25 @@ function selectMapImage() {
   fileInput.value?.click()
 }
 
+/**
+ * 迟到的响应守卫（同一类竞态，E2E 抓到过一次）。
+ *
+ * 起因：地图 tab 的 `loadMapData()` 在飞的时候，作者选了本地预览图；服务端响应**后**到，
+ * `mapImage = data.image_path || ''` 把预览清掉 → 界面退回"点击上传"占位符，作者以为失败了。
+ * （隔离 E2E 数据目录后首次访问更慢，这条竞态才稳定复现出来。）
+ *
+ * 规则：**迟到的服务端响应一律丢弃**——只要 ① 期间换了书/重发了请求（`seq` 变了），
+ * 或 ② 期间作者已经在本机改过地图（`mapDirty`）。切书与保存成功各自重置为"干净"。
+ */
+let mapLoadSeq = 0
+const mapDirty = ref(false)
+
+/** 本机改过地图（选了图 / 加了标记）：此后迟到的响应不许覆盖（见上） */
+function markMapDirty() {
+  mapDirty.value = true
+  saved.value = false // 上一次的"已保存"也不再成立（评审 P2-8）
+}
+
 /** 清空一切与"当前这本书的地图"绑定的状态（切书时用，评审 P1-1） */
 function resetMapState() {
   mapImage.value = ''
@@ -673,13 +700,14 @@ function resetMapState() {
   newMarkerPos.value = null
   saved.value = false
   mapNotice.value = ''
+  mapDirty.value = false
 }
 
 function onImageSelected(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   mapImage.value = URL.createObjectURL(file)
-  saved.value = false // 换了图 → 上一次的"已保存"不再成立（评审 P2-8）
+  markMapDirty()
 }
 
 function onMapClick(e: MouseEvent) {
@@ -704,7 +732,7 @@ function addMarker() {
     description: newMarkerForm.description,
   })
   newMarkerPos.value = null
-  saved.value = false
+  markMapDirty()
 }
 
 function selectMarker(m: ApiMapMarker) {
@@ -716,13 +744,17 @@ function deleteMarker() {
   if (!selectedMarkerId.value) return
   markers.value = markers.value.filter((m) => m.id !== selectedMarkerId.value)
   selectedMarkerId.value = null
-  saved.value = false
+  markMapDirty()
 }
 
 async function loadMapData() {
   if (!novelId.value) return
+  const wanted = novelId.value
+  const seq = ++mapLoadSeq
   try {
-    const data = await fetchNovelMap(novelId.value)
+    const data = await fetchNovelMap(wanted)
+    // 迟到的响应一律丢弃：期间换了书 / 又发了一次请求 / 作者已在本机改过地图（见守卫注释）
+    if (seq !== mapLoadSeq || wanted !== novelId.value || mapDirty.value) return
     // 先清后赋：`image_path` 为空时也必须把上一本书的图清掉（评审 P1-1）
     mapImage.value = data.image_path || ''
     markers.value = data.markers || []
@@ -731,6 +763,7 @@ async function loadMapData() {
     saved.value = false
     mapNotice.value = ''
   } catch (e: any) {
+    if (seq !== mapLoadSeq || wanted !== novelId.value) return
     // 旧实现这里是空 catch：地图坏了但界面看不出来。现在报出来。
     mapNotice.value = `地图读取失败：${errorDetail(e, '未知错误')}`
     ElMessage.error(mapNotice.value)
@@ -758,6 +791,7 @@ async function saveMapData() {
       })),
     })
     saved.value = true
+    mapDirty.value = false // 服务端已与本地一致 → 之后的服务端响应可以正常采纳（见迟到响应守卫）
     mapNotice.value = ''
     ElMessage.success('地图标记已保存')
   } catch (e: any) {
