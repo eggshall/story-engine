@@ -78,7 +78,7 @@ def _get_writing_settings() -> Dict[str, Any]:
     """从 config 读取默认写作参数"""
     cfg = get_config()
     return {
-        "default_model": cfg.get("llm.default_model", "deepseek-v4-pro"),
+        "default_model": cfg.get("llm.default_model", "deepseek-v4-flash"),
         "temperature": cfg.get("writing.temperature", 0.7),
         "max_tokens": cfg.get("writing.max_tokens", 4096),
     }
