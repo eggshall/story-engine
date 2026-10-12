@@ -1,0 +1,19 @@
+{
+  "//": "E2E（Playwright）专用类型检查。为什么单独一份：e2e/ 不在 src/frontend 的 tsconfig 覆盖范围内，导致这里的 TS 错误**没有任何门禁能发现** —— 第五切片评审 P2-5 记下的盲区（当时 `import zlib from 'node:zlib'` 与 `for (const b of buf)` 带着 TS1192/TS2802 一路提交进去了）。命令：npm run typecheck:e2e",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["**/*.ts"]
+}

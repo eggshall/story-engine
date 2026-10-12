@@ -33,7 +33,22 @@ def project_root() -> Path:
     return _PROJECT_ROOT
 
 
+# 数据目录覆盖开关（E2E 隔离）：`STORY_DATA_DIR=<path>` 时把 `data/` 指到别处。
+#
+# 为什么需要：`data_dir()` 原先硬编码「项目根/data」，于是浏览器 E2E 跑出来的小说会落在
+# 作者**真实的**作品列表里（实测多出一本「未命名作品」—— 那是 `generate` 端点没收到
+# `novel_id` 时落盘的临时书）。隔离数据目录后，"E2E 不污染真实数据"这件事不靠人自觉。
+#
+# 注意：`NOVELS_ROOT` / `LIBRARY_DIR` / `STYLE_DB_DIR` 等都是**模块级常量、导入期求值**，
+# 所以这个变量必须在**进程启动前**设好（`scripts/e2e_dev_stack.sh` 就是这么做的）。
+# 与 `STORY_CONFIG_PATH`（见下）同一套路。
+DATA_DIR_ENV = "STORY_DATA_DIR"
+
+
 def data_dir() -> Path:
+    override = os.environ.get(DATA_DIR_ENV, "").strip()
+    if override:
+        return Path(override).expanduser()
     return project_root() / "data"
 
 

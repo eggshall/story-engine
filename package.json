@@ -4,9 +4,12 @@
   "description": "story-engine 项目级 E2E（Playwright）。后端依赖见 pyproject.toml，前端依赖见 src/frontend/package.json。",
   "scripts": {
     "e2e": "playwright test --config e2e/playwright.config.ts",
-    "e2e:stack": "bash scripts/e2e_dev_stack.sh"
+    "e2e:stack": "bash scripts/e2e_dev_stack.sh",
+    "typecheck:e2e": "tsc -p e2e/tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "@playwright/test": "1.64.0"
+    "@playwright/test": "1.64.0",
+    "@types/node": "^22.10.0",
+    "typescript": "~5.7.0"
   }
 }

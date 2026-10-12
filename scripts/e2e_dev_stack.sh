@@ -20,6 +20,14 @@ export NVM_DIR="$HOME/.nvm"
 MODE="${1:-}"
 FAKE_PORT="${E2E_FAKE_PORT:-8899}"
 FAKE_PID=""
+# 数据目录隔离：把后端 `data/`（novels / library / style_profiles / user_profile）
+# 指到临时目录，让浏览器 E2E **永远不往真实数据里写**。
+# 起因（实测）：E2E 跑完在真实作品列表里多出一本「未命名作品」—— 那是 `generate` 端点
+# 没收到 novel_id 时落盘的临时书；`data_dir()` 原先硬编码项目根，隔离不了。
+# 用一个固定路径（不每次清空）：各 spec 自己会删掉建的书，残留留在 /tmp 里无害；
+# 想彻底清就 `rm -rf /tmp/story-e2e-data`。
+E2E_DATA_DIR="${E2E_DATA_DIR:-/tmp/story-e2e-data}"
+mkdir -p "$E2E_DATA_DIR"
 
 cleanup() {
   for pid in "${FRONT:-}" "${BACK:-}" "$FAKE_PID"; do
@@ -53,7 +61,10 @@ if [ "$MODE" = "--fake" ]; then
   echo "后端将使用临时配置: $CFG_ENV（模型指向假上游）"
 fi
 
+echo "后端数据目录（隔离）: $E2E_DATA_DIR"
+
 STORY_CONFIG_PATH="$CFG_ENV" \
+STORY_DATA_DIR="$E2E_DATA_DIR" \
 .venv/bin/python -m uvicorn story_engine.api.main:app --host 127.0.0.1 --port 8000 \
   > /tmp/e2e_backend.log 2>&1 &
 BACK=$!
