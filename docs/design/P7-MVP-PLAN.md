@@ -193,6 +193,7 @@
 | **N6** ✅ | 审稿页（路由 + 导航注册 + 三栏 + 带指令重写）+ 注入清单落盘 `GET /api/check/manifest` | N4/N5 |
 | **N7** | 章摘要 + SQLite（走 `_novel_dir`）+ 装配接入 + 离线串行队列 | N4 |
 | **N8** 🚧 | 项目空间：角色卡/世界观**按小说绑定**（全局目录退役）+ 素材库（仅作复制来源） | N6 |
+| **N9** ⬅ 下一个 | **伏笔账本 + 注入 + 校验（最小版）**：`novel.json` 增 `threads`；装配器挂 `threads` provider/槽位；A 类校验 2 条；`/api/novel/{id}/threads` CRUD。**不改装配器签名、不改 SSE 契约、不引入检索** —— 要点见 §9.1.1 | N8（世界观按书绑定） |
 
 **N8 进度（2026-10-11 收工时）**
 
@@ -235,6 +236,86 @@
   **先清空再重建** `characters/`、`lore/` 目录，绕过模型直接往镜像目录写文件，
   会在下一次保存章节时被整目录清空（作者眼里是"卡莫名其妙没了"）。
   回归用例：`tests/test_characters/test_novel_scoped_cards.py::test_card_survives_chapter_save`。
+
+### 9.1.1 N9 设计要点 —— 伏笔账本 + 注入 + 校验（最小版）
+
+> 动机来源：同类产品的对照结论（`~/wiki/comparisons/product-novel-tools-setting-modules.md`）——
+> 起点作家助手把**伏笔做成一等公民模块**（且可「从正文选段落建立」），马良用
+> **埋设/强化/回收三段式 + 埋设章/回收章双向指针**。本项目此前的伏笔只隐含在 `lore` 的
+> 关键词触发里，装不下「埋设章 → 回收章」的状态机。
+
+#### 为什么这是「最小化改动」——四个已就绪的扩展点
+
+| 扩展点 | 现状 | 本节点怎么用 |
+|---|---|---|
+| `context_sources.build_novel_builder(..., extra_providers=...)` | 已存在，注释明确写着「用于后续阶段挂新数据源 —— **不改本函数签名**」 | 直接把 `threads` provider 从 `extra_providers` 传入 |
+| `default_slots()` | 槽位是「注册表名字」的列表，provider/renderer 解耦（N4a 特意做成这样） | 新增一条 `Slot(...)`，不动既有槽位 |
+| `ContextPiece(text, source, truncated)` + `manifest.skipped`/`error:<类型>` | 「没注成必须可见」已是既有契约 | 账本为空 → 返回空列表 → 自动进 `skipped`，无需新机制 |
+| `check/rules.py` A 类校验器 | 确定性、不调模型、发现带 `level + location + suggestion`；无基线返回 `skipped` | 新增 2 条规则，不改框架 |
+
+**明确不碰**：`build_novel_builder` 签名、SSE 契约（`token`/`done`/`error` 与单一 `done`）、
+`generate.py` 的既有装配调用链、`printer`/渲染框架、`router.py` 的模型层。
+
+#### 数据模型（沿用既有存储约定）
+
+`<小说目录>/novel.json` 增 `threads`（**真源**），并镜像 `<小说目录>/threads/*.json`（human-readable），
+与 `characters`/`lorebooks` 的「model 为真源 / 目录文件为镜像」约定一致。
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 稳定标识（生成后不再改） |
+| `title` | 一眼能看懂的短句（不要只写"神秘老者"） |
+| `status` | `planted` → `developed` → `paid_off` / `abandoned` |
+| `planted_chapter` | 埋设章号 |
+| `payoff_chapter` | 回收章号，未回收为 `null`（**改章节顺序时最易失效的位置信息**） |
+| `strength` | 1–5，越大表示此刻越该让读者感觉到 |
+| `note` | 计划怎么回收 / 回收什么 |
+
+**⚠️ 陷阱（必须遵守，与 N8 的同源）**：`novel_storage._write_files` 每次保存都会
+**先清空再重建** `characters/`、`lore/` 镜像目录。新增 `threads/` 镜像**必须同时加进
+`_write_files` 的重建列表**，否则绕过模型直接写镜像文件后，会在下一次保存章节时被整目录清空。
+回归用例仿照 `test_card_survives_chapter_save`。
+（另：PLAN 原文拼写为 `payed_off`，实现时统一为 `paid_off` 并同步改 PLAN 该行。）
+
+#### 注入（本期是**规则过滤**，不是检索）
+
+```
+Slot("threads", priority=SUMMARIES, provider="threads", renderer="bullets", max_tokens=1200)
+```
+
+- 排位放在 `beat` 之后、`recap` 之前：伏笔回答的是「本章该推进什么」，与节拍同级紧邻
+- 优先级取 `SUMMARIES` 同级（**可被裁**）而非 `PINNED`：账本属"记忆"类，不是硬约束
+- 过滤规则：`status ∈ {planted, developed}` 且 `planted_chapter ≤ 本章章号`
+- 超 `max_tokens`：按「距上次推进的章数」降序截断，**并在 `ContextPiece.truncated` 自报**
+- provider 契约照旧：读不到 → 返回 `[]` → 进 `manifest.skipped`
+- `source` 命名沿用既有风格：`thread:<id>`
+
+#### A 类校验（2 条，确定性、不调模型）
+
+| 规则 | 判定 | level |
+|---|---|---|
+| `dangling_threads` | `status ∈ {planted, developed}` 且 `本章 − planted_chapter > 阈值`（默认 30，可配） | `alert` / `warn` 分级 |
+| `unknown_payoff` | `payoff_chapter` 指向不存在的章节 | `alert` |
+
+**无账本 / 无基线时返回 `skipped` 而不是猜**（遵守 N5 铁律）；`location` 偏移相对请求原文。
+
+#### 接口与前端
+
+- `GET/POST/PUT/DELETE /api/novel/{id}/threads`，请求/响应复用 `APIModel`（camelCase 兼容）
+- 前端：写作页右侧面板**只读**展示「未回收伏笔」清单（本期不做编辑 UI，作者先用文件/接口维护）
+
+#### 非目标（明确推迟，避免范围蔓延）
+
+向量或按需检索注入、从正文自动抽取伏笔、变更隔离（改设定不污染已定稿）、
+图谱关系层、伏笔编辑 UI、素材卡片化。**这些都在阶段 Ⅲ–Ⅵ，不在 N9。**
+
+#### 验收
+
+1. 账本 CRUD 通过；`novel.json` 与 `threads/` 镜像一致，且**保存章节后镜像不被清空**
+2. 生成时未回收伏笔进入注入清单（`GET /api/check/manifest` 可见 `source="thread:<id>"`）
+3. 无账本时槽位进 `skipped`，校验返回 `skipped`（**不告警**）
+4. 悬空伏笔 / 回收章不存在能被校验报出
+5. E2E 判定：改了文件落盘与 HTTP 接口 → **必须有真实 HTTP E2E**；校验规则本身用单测即可
 
 ### 9.2 每个节点的固定流程（测试先行，缺一步不算完成）
 

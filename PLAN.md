@@ -311,10 +311,29 @@ story-engine/
 - [ ] 装配器: 硬预算上限; 常驻骨架 + 按需检索; **同时作为作者手边的参考面板**
 - 验收: 20M 字级装配输入受限在预算内; 第 N 章正确接续第 N−100 章主线与伏笔
 
+### 阶段 Ⅱ.5 — 伏笔账本与注入（最小版, N9）⬅ 先做这个
+> 动机: 阅文时代的产品需求原话——「一本书写个三五年，伏笔就记不起来了」；同类产品（起点作家助手、
+>   马良）都把**伏笔当一等公民模块**而非设定附属（见 `~/wiki/comparisons/product-novel-tools-setting-modules.md`）。
+> 设计要点、扩展点与**非目标**见 `docs/design/P7-MVP-PLAN.md` §9.1.1。
+> 约束: **最小化改动** —— 不新建存储体系、不改装配器签名、不改 SSE 契约、不引入检索/向量。
+
+- [ ] 伏笔账本最小模型: `<小说目录>/novel.json` 增 `threads`（真源）+ `threads/` 只读镜像，沿用既有
+  「model 为真源 / 目录文件为 human-readable 镜像」约定；字段 `id/title/status/planted_chapter/payoff_chapter/strength/note`
+- [ ] 装配器挂 `threads` provider + 一条槽位（走既有 `extra_providers` 口子，**不改 `build_novel_builder` 签名**）
+- [ ] 注入规则（最小版，非检索）: 只注入 `status ∈ {planted, developed}` 且 `planted_chapter ≤ 本章` 的伏笔；
+  超预算按「距上次推进的章数」降序截断并标 `truncated`
+- [ ] A 类校验 2 条（确定性、不调模型）: `dangling_threads`（悬空伏笔）/ `unknown_payoff`（回收章不存在）；
+  **无账本时返回 skipped 而不是猜**（遵守 N5 铁律）
+- [ ] 最小 API: `GET/POST/PUT/DELETE /api/novel/{id}/threads`（复用 `APIModel` camelCase 兼容）
+- [ ] 前端: 写作页右侧面板只读展示「未回收伏笔」清单（本期不做编辑 UI）
+- **非目标（明确推迟到阶段 Ⅲ 完整版）**: 向量/按需检索、从正文自动抽伏笔、变更隔离、图谱关系、编辑 UI
+- 验收: 账本增删改查通过；生成时未回收伏笔进入注入清单（`manifest` 可见）；悬空伏笔能被校验报出；
+  无账本时校验返回 skipped 而非告警
+
 ### 阶段 Ⅲ — 设定库（novel-kb）
 - [ ] 每本小说一个 markdown 知识库（SCHEMA/index/log + entities/timeline/plot/style）
 - [ ] frontmatter schema: `id/type/aliases/status/established_in/valid_from/supersedes`
-- [ ] 伏笔一等公民: planted → developed → payed_off/abandoned + payoff_plan
+- [ ] 伏笔一等公民: planted → developed → payed_off/abandoned + payoff_plan（**最小版已前移到阶段 Ⅱ.5 / N9**）
 - [ ] 增量维护 + lint（孤儿页/断链/悬空伏笔/设定冲突, 区分 plot hole 与刻意反转）
 - [ ] 变更隔离: 改设定只在生效点之后生效, 不污染已定稿正文
 - 验收: 悬空伏笔与设定冲突可报出; 改设定不影响已定稿章节
