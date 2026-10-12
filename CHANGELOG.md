@@ -1,3 +1,36 @@
+## [Unreleased] — 进行中（2026-09 ~ 2026-10，P7 节点 N0–N9）
+
+> 本节记录 P7 里程碑的节点级交付（节点流程：①REO 写失败测试 → ②实现 → ③全绿 → ④E2E →
+> ⑤opencode 评审归档 `docs/design/reviews/` → ⑥逐条修复 → ⑦一次节点一次提交）。
+> 尚未发版：**N7（章摘要+SQLite）未开始，N8 的世界观部分未完成**。
+
+### 节点交付
+
+- ✅ **N0/N1/N2** — 项目骨架、鉴权与 SSE 契约、假上游 E2E 工具链
+  （SSE 三事件 `token`/`done`/`error`；**单一 done**；`error` 不落盘）
+- ✅ **N3** — config schema 放行 `thinking`/`task`：配置不再被 `model_dump()` **静默剥离**
+- ✅ **N4a** — 槽位装配器 v0：`Slot` 注册表 + 注入清单 + **两级预算**（槽位 `max_tokens` + 全局 `budget_tokens`）
+- ✅ **N4b** — 真实数据源 + `/api/generate/chapter/v2`；注入清单随 SSE `done` 载荷下发；
+  作者手写件 `mainline.md` / `recap.md` / `beats/ch_XXXX.md`
+- ✅ **N5** — A 类校验器 5 条（确定性、不调模型）+ `POST /api/check/chapter`；
+  两条铁律：**无基线返回 `skipped` 不猜**、**别把正常中文当套话**
+- ✅ **N6** — 审稿页（三栏 + 带指令重写）+ 注入清单落盘 `GET /api/check/manifest`
+- 🚧 **N8**（部分）— 项目空间：**角色卡按小说绑定**（全局目录退役）+ 素材库（纯复制语义）
+  + `/api/novel/{id}/characters` 系列 + 前端接上；**世界观（lore）按书绑定与浏览器 E2E 未做**
+- ✅ **N9** — **伏笔账本 + 注入 + 校验（最小版）**：`PlotThread` + `Novel.threads`
+  （真源 `novel.json`，镜像 `threads/`）；装配器 `threads` 槽位（`priority=SUMMARIES`）；
+  校验新增 `dangling_threads` / `unknown_payoff`；`/api/novel/{id}/threads` 5 个端点
+  （`APIModel` 兼容 camelCase + `extra="forbid"`）
+  - 修掉评审实测的**静默覆盖**缺陷：`PUT` 改 id 曾能把另一条伏笔静默改写 → 目标已存在即失败
+  - **不改装配器签名、不改 SSE 契约、不引入检索**（走既有 `extra_providers` 口子）
+- ⬜ **N7** — 章摘要 + SQLite + 离线串行队列（未开始）
+
+### 质量基线
+
+- 后端：**921 passed / 3 skipped**，覆盖率 **94.36%**（门禁 75%）；ruff / mypy 全绿
+- 前端：vitest **104 passed**；vue-tsc 0
+- 评审：`docs/design/reviews/N0–N6、N9-REVIEW.md`（各节点均"需补充/修复后通过 → 已逐条处置"）
+
 ## [0.8.0] — 2026-08-03
 
 ### 新增
