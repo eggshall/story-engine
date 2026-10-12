@@ -246,9 +246,11 @@ test('世界观页 · 设定集按书绑定：落盘 → 刷新仍在 → 换书
   await pickNovel(TITLE_A)
   await page.locator('[data-testid="lorebook-天玄大陆"]').click()
   await page.locator('[data-testid="delete-lorebook"]').click()
-  // 按 class 点主按钮，不依赖文案：本应用没注册 Element Plus 的 zh-CN locale，
-  // ElMessageBox 的按钮实际是 "OK"/"Cancel"（已在评审里记为待办的 UI 一致性问题）
-  await page.locator('.el-message-box__btns .el-button--primary').click()
+  // 按 class 点主按钮（不依赖文案的稳定性），但**同时断言**文案是中文「确定」——
+  // 这既是"内置组件文案已本地化"的证据，也守住"删确认框有这个按钮"这件事
+  const confirmPrimary = page.locator('.el-message-box__btns .el-button--primary')
+  await expect(confirmPrimary).toHaveText('确定')
+  await confirmPrimary.click()
 
   await expect(page.locator('.world-categories')).not.toContainText(BOOK, { timeout: 20_000 })
   await expect(page.locator('.world-entries')).not.toContainText(ENTRY_CONTENT)
