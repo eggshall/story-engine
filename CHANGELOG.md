@@ -86,9 +86,12 @@
   （`APIModel` 兼容 camelCase + `extra="forbid"`）
   - 修掉评审实测的**静默覆盖**缺陷：`PUT` 改 id 曾能把另一条伏笔静默改写 → 目标已存在即失败
   - **不改装配器签名、不改 SSE 契约、不引入检索**（走既有 `extra_providers` 口子）
-- ⬜ **N7** — 章摘要 + SQLite + 离线串行队列（未开始）
+- 🚧 **N7** — 章摘要 + SQLite + 离线串行队列：**设计已出待拍板**（`docs/design/N7-DESIGN.md`）；
+  进度状态以 `PLAN.md` 为准
 
 ### 质量基线
+
+> **活的数字以 `PLAN.md`「当前门禁」为准**；本节是发布时的快照（本文件是变更记录，不是计划）。
 
 - 后端：**1025 passed / 3 skipped**，覆盖率 **94.51%**（门禁 75%）；ruff / mypy（69 文件）全绿
 - 前端：vitest **131 passed / 15 files**；vue-tsc 0；vite build ✓

@@ -29,6 +29,21 @@ FAKE_PID=""
 E2E_DATA_DIR="${E2E_DATA_DIR:-/tmp/story-e2e-data}"
 mkdir -p "$E2E_DATA_DIR"
 
+# 硬闸：端口已被占用就**拒绝启动**。
+# 理由（实测事故，2026-10-12）：上一轮的开发栈没停（或被杀时没跑到 cleanup trap 留下孤儿进程），
+# 新一轮照起，新后端绑不上 8000 → E2E 的请求打进**旧进程**，症状有两种，都很难认：
+#   ① 新加的接口报 405 Method Not Allowed（旧后端没有这条路由）；
+#   ② 旧进程没有本轮的环境变量（比如 STORY_DATA_DIR 隔离），于是把测试书**写进真实 data/**。
+# 与其事后从症状反推，不如一开始就不许两个栈共存。
+for _p in 8000 5173 "$FAKE_PORT"; do
+  if (echo > "/dev/tcp/127.0.0.1/${_p}") 2>/dev/null; then
+    echo "✗ 端口 ${_p} 已被占用 —— 先停掉上一轮的开发栈再跑本脚本。" >&2
+    echo "  排查：ss -ltnp | grep -E ':8000|:5173'  然后  pkill -f 'uvicorn story_engine'  /  pkill -f 'vite --host'" >&2
+    echo "  （不这么做的话，E2E 会打到旧进程上：轻则 405，重则把测试数据写进真实 data/）" >&2
+    exit 3
+  fi
+done
+
 cleanup() {
   for pid in "${FRONT:-}" "${BACK:-}" "$FAKE_PID"; do
     [ -n "$pid" ] && kill "$pid" 2>/dev/null
