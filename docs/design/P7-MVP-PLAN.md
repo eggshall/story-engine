@@ -237,12 +237,15 @@
 | `_write_files` 对 `lore/` 改为「先清空再重建」（原为只写不清空，是三个镜像目录里唯一的例外） | ✅ |
 | E2E 留痕 `tests/e2e/test_n8_lore_real_http.py`（6 例：命中入清单＋上游真实 prompt、**书间隔离**、无触发源、未命中、真源/镜像落盘、删除后残影被清） | ✅ |
 | 评审 `docs/design/reviews/N8-REVIEW.md`（无 P0；2 个 P1 + 8 个 P2 全处置） | ✅ |
-| `/api/novel/{id}/lorebooks` 系列（GET/POST/PUT/DELETE）+ 素材库 lore 端点（`/api/library/lorebooks`、`.../{name}/to-library`、`.../import`） | ✅ 本轮补上 |
+| `/api/novel/{id}/lorebooks` 系列（GET/POST/PUT/DELETE）+ 素材库 lore 端点（`/api/library/lorebooks`、`.../{name}/to-library`、`.../import`） | ✅ 第二切片 |
 | 接口测试 `tests/test_lore/test_lorebooks_api.py`（13 例）+ E2E `tests/e2e/test_n8_lorebooks_real_http.py`（4 例：鉴权、**录入→落盘→真的进下一次生成的 prompt**、书间隔离、素材库跨书复制） | ✅ |
-| `WorldView` 设定集区块（现状：页面内写死假数据，全项目无 `/api/lore` 调用） | ⬜ 未做 |
-| 世界观**浏览器** E2E | ⬜ 未做（依赖上一项） |
+| `WorldView` 设定集区块（原为页面内写死假数据） | ✅ 第四切片 |
+| 世界观**浏览器** E2E | ✅ 第四切片（`e2e/worldview.e2e.ts`） |
+| 镜像文件名身份碰撞（静默丢卡） | ✅ 第三切片修复 |
+| `/world` 地图 tab 的读写（原为打 `/novel/current/map` → 404 被静默吞） | ✅ 第四切片修复 |
 
-门禁：**1007 passed / 3 skipped，覆盖率 94.43%** · ruff · mypy（68 文件）· vitest 104 · vue-tsc 0 · vite build ✓
+门禁：**1007 passed / 3 skipped，覆盖率 94.43%** · ruff · mypy（68 文件）· vitest **115** · vue-tsc 0 ·
+vite build ✓ · 浏览器 E2E **7 passed**（n0×4 / n2 / n6 / worldview）
 
 **第三切片：镜像文件名身份碰撞修复（2026-10-12 同日）**：`docs/design/reviews/N8-REVIEW.md`
 第三节 —— 无 P0；**1 个 P1 + 3 个 P2 全处置**。要点：
@@ -261,6 +264,37 @@
 > **`characters/` 镜像文件名 slug 碰撞 + `load_novel` 回读镜像 = 真丢卡**（探针实测：同书建
 > `"A B"` 与 `"A_B"`，先建的那张立刻在界面看不见，真源里其实还在）。`lore/` 不受影响（不回读镜像）。
 > 修法与影响面见评审归档末节，**需另开增量并 RED 先行**。
+
+**第四切片：WorldView 接后端（方案 A）+ 地图 404 修复（2026-10-12，用户选定「1+3」）**
+
+> 依据：同类产品对照（`~/wiki/comparisons/product-novel-tools-setting-modules.md` 与
+> `~/wiki/raw/articles/qidian-writer-assistant-setting-research.md`）+ 本节实测现状。
+> 用户拍板：**顺序 A → B → C**（C 单独立项）；**地图 404 本轮一起修**；
+> 「类型」放条目还是用预置设定集（问题 2）**留到做 B 时再定**。
+
+**实测现状（比文档原先写的更糟：两处虚构）**：
+
+| 位置 | 现状 |
+|---|---|
+| 「条目」tab | `entries` 是**页面内写死的数组**（`WorldView.vue` 里一条「盖亚大陆」），全项目无任何 lorebook 接口调用 → 刷新即丢 |
+| 「地图」tab | 调 `/novel/current/map`，而后端只有 `/api/novel/{novel_id}/map`、**服务端没有 current 这个概念** → 后端拿 `novel_id="current"` 找书 → 404 → 前端 `catch {}` **静默吞掉**。**读写都是坏的**（保存同样 404） |
+| 地图图片 | `URL.createObjectURL(file)` 只在本机内存里，且 `/map/image` 后端自述「返回假路径（占位）」 |
+
+**方案 A 的映射决定**：后端模型是「设定集（`LoreBook`）→ 条目（`keys/content/priority/enabled`）」，
+**没有「分类」字段**，所以左侧分类目录改成**设定集名的动态列表**（+「全部」）；现有六个写死的
+分类（地理/历史/魔法/势力/人物/其他）**退役** —— 「类型」维度是方案 B 的议题，不在本切片里偷偷加。
+
+**选书**：复用 `CharactersView` 的三级优先（写作页当前那本 → `localStorage['story_last_novel']`
+→ **最近更新的那本（显式按 `updated` 排序）**），不新造一套。
+
+**本轮明确不做**：条目「类型」字段、AI 补全、正文反哺、检索式注入、地图图片真实上传
+（图片保持本机预览，但**界面必须说清它没上传**，不能再假装已保存）。
+
+> **⚠️ 已知副作用（第四切片评审 P2-9，必须记住）**：本切片把「分类」入口撤掉了，而 `category`
+> 字段仍被 `api/routes/novel.py` 的**地名一致性校验**依赖（`category ∈ 地理/地点…` → `known_places`）。
+> 因此**本切片新建的条目 `category` 恒为 `general`，地名一致性校验对它们不生效**；已有条目（含
+> 手工/CLI 写入的非默认 `category`）在编辑时会**原样保留**该字段（评审 P0-1 修的就是这个）。
+> 「类型」维度是方案 B 的议题 —— 到那时一并把校验口径重新对齐。
 
 
 ### N8 决策（用户已定，2026-10-11）

@@ -1,41 +1,70 @@
-
 <template>
   <div class="world-view">
     <div class="view-header">
       <h3>世界观设定</h3>
-      <el-button v-if="activeTab === 'entries'" type="primary" :icon="Plus" @click="showEditor = true">新建条目</el-button>
+      <div class="header-actions">
+        <el-select
+          v-model="novelId"
+          data-testid="novel-select"
+          placeholder="选择小说"
+          size="small"
+          style="width: 200px"
+        >
+          <el-option v-for="n in novels" :key="n.id" :label="n.title" :value="n.id" />
+        </el-select>
+        <el-button
+          v-if="activeTab === 'entries'"
+          type="primary"
+          :icon="Plus"
+          :disabled="!novelId"
+          data-testid="new-entry"
+          @click="startNewEntry"
+        >
+          新建条目
+        </el-button>
+        <el-button
+          v-if="activeTab === 'entries' && activeCategory !== 'all'"
+          type="danger"
+          plain
+          size="small"
+          data-testid="delete-lorebook"
+          @click="removeLorebook"
+        >
+          删除设定集
+        </el-button>
+      </div>
     </div>
+
+    <p v-if="errorMsg" class="err" data-testid="world-error">{{ errorMsg }}</p>
+    <p v-else-if="!novelId" class="hint">先在上面选一本小说（设定集属于某一本书）</p>
 
     <el-tabs v-model="activeTab" class="world-tabs">
       <el-tab-pane label="条目" name="entries">
         <div class="world-content">
           <div class="world-categories">
-            <el-menu :default-active="activeCategory" @select="(i: string) => activeCategory = i">
-              <el-menu-item index="all">
+            <el-menu :default-active="activeCategory">
+              <el-menu-item index="all" data-testid="lorebook-all" @click="activeCategory = 'all'">
                 <el-icon><Folder /></el-icon><span>全部</span>
               </el-menu-item>
-              <el-menu-item index="地理">
-                <el-icon><Location /></el-icon><span>地理</span>
-              </el-menu-item>
-              <el-menu-item index="历史">
-                <el-icon><Timer /></el-icon><span>历史</span>
-              </el-menu-item>
-              <el-menu-item index="魔法">
-                <el-icon><MagicStick /></el-icon><span>魔法/能力</span>
-              </el-menu-item>
-              <el-menu-item index="势力">
-                <el-icon><OfficeBuilding /></el-icon><span>势力</span>
-              </el-menu-item>
-              <el-menu-item index="人物">
-                <el-icon><UserFilled /></el-icon><span>人物</span>
+              <el-menu-item
+                v-for="b in books"
+                :key="b.name"
+                :index="b.name"
+                :data-testid="`lorebook-${b.name}`"
+                @click="activeCategory = b.name"
+              >
+                <el-icon><Collection /></el-icon><span>{{ b.name }}</span>
               </el-menu-item>
             </el-menu>
+            <p v-if="books.length === 0" class="hint small">这本书还没有设定集</p>
           </div>
           <div class="world-entries">
-            <div v-for="entry in filteredEntries" :key="entry.id" class="entry-card" @click="editEntry(entry)">
+            <div v-for="entry in filteredEntries" :key="entry.key" class="entry-card" @click="editEntry(entry)">
               <div class="entry-header">
-                <span class="entry-name">{{ entry.name }}</span>
-                <el-tag size="small">{{ entry.category }}</el-tag>
+                <span class="entry-name">{{ entry.entryId }}</span>
+                <el-tag size="small">{{ entry.bookName }}</el-tag>
+                <el-tag v-if="!entry.enabled" size="small" type="info">已停用</el-tag>
+                <span class="entry-priority">P{{ entry.priority }}</span>
               </div>
               <div class="entry-keys">
                 <el-tag v-for="k in entry.keys" :key="k" size="small" type="info" round>{{ k }}</el-tag>
@@ -43,7 +72,7 @@
               <div class="entry-content">{{ entry.content }}</div>
             </div>
             <div v-if="filteredEntries.length === 0" class="entries-empty">
-              <el-empty description="暂无条目" />
+              <el-empty :description="novelId ? '暂无条目' : '先选一本小说'" />
             </div>
           </div>
         </div>
@@ -53,7 +82,15 @@
         <div class="map-container">
           <div class="map-toolbar">
             <el-button size="small" type="primary" @click="selectMapImage">上传地图</el-button>
-            <el-button size="small" @click="saveMapData" :loading="saving" :disabled="!mapImage">保存标记</el-button>
+            <el-button
+              size="small"
+              data-testid="save-map"
+              :loading="saving"
+              :disabled="!novelId || saving"
+              @click="saveMapData"
+            >
+              保存标记
+            </el-button>
             <span v-if="saved" class="save-hint">已保存</span>
             <input
               ref="fileInput"
@@ -64,22 +101,26 @@
             />
           </div>
 
+          <!-- 诚实提示：后端目前只有占位接口，图片没有真的上传 -->
+          <p class="hint">地图图片仅在<strong>本机预览</strong>，未上传到服务端（后端 `POST /map/image` 目前返回占位路径）。</p>
+          <p v-if="mapNotice" class="err" data-testid="map-notice">{{ mapNotice }}</p>
+
           <div v-if="!mapImage" class="map-placeholder" @click="selectMapImage">
             <el-icon :size="48"><Picture /></el-icon>
-            <p>点击上传地图图片</p>
+            <p>点击上传地图图片（本机预览）</p>
             <p class="hint">支持 JPG / PNG 格式</p>
           </div>
 
           <div v-else class="map-area">
-            <div class="map-image-wrapper" ref="mapWrapper" @click="onMapClick">
+            <div ref="mapWrapper" class="map-image-wrapper" @click="onMapClick">
               <img :src="mapImage" alt="世界地图" class="map-image" />
               <div
                 v-for="m in markers"
                 :key="m.id"
                 class="map-marker"
                 :style="{ left: m.x + '%', top: m.y + '%' }"
-                @click.stop="selectMarker(m)"
                 :title="m.name"
+                @click.stop="selectMarker(m)"
               >
                 <div class="marker-pin" :class="{ active: selectedMarkerId === m.id }">
                   <el-icon><Location /></el-icon>
@@ -98,10 +139,10 @@
               <el-form-item label="关联 Lore 条目">
                 <el-select v-model="selectedMarker.lore_entry_id" filterable allow-create clearable style="width:100%">
                   <el-option
-                    v-for="e in entries"
-                    :key="e.id"
-                    :label="e.name"
-                    :value="e.id"
+                    v-for="e in flatEntries"
+                    :key="e.key"
+                    :label="`${e.bookName} / ${e.entryId}`"
+                    :value="e.key"
                   />
                 </el-select>
               </el-form-item>
@@ -134,104 +175,345 @@
     </el-tabs>
 
     <!-- 条目编辑弹窗 -->
-    <el-dialog v-model="showEditor" title="新建/编辑条目" width="500px">
+    <el-dialog v-model="showEditor" :title="editingEntry ? '编辑条目' : '新建条目'" width="500px">
       <el-form :model="entryForm" label-position="top">
-        <el-form-item label="条目名称" required>
-          <el-input v-model="entryForm.name" />
+        <el-form-item label="设定集" required>
+          <el-input
+            v-model="entryForm.bookName"
+            :disabled="!!editingEntry"
+            data-testid="form-book"
+            placeholder="填已有设定集名，或输入新名字（即新建）"
+          />
         </el-form-item>
-        <el-form-item label="分类">
-          <el-select v-model="entryForm.category" style="width: 100%">
-            <el-option label="地理" value="地理" />
-            <el-option label="历史" value="历史" />
-            <el-option label="魔法/能力" value="魔法" />
-            <el-option label="势力" value="势力" />
-            <el-option label="人物" value="人物" />
-            <el-option label="其他" value="其他" />
-          </el-select>
+        <el-form-item label="条目 ID">
+          <el-input
+            v-model="entryForm.entryId"
+            :disabled="!!editingEntry"
+            data-testid="form-entry-id"
+            placeholder="留空自动生成"
+          />
         </el-form-item>
         <el-form-item label="触发关键词">
-          <el-select v-model="entryForm.keys" multiple filterable allow-create default-first-option
-            placeholder="输入关键词，回车添加" style="width: 100%" />
+          <el-select
+            v-model="entryForm.keys"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            placeholder="输入关键词，回车添加"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="设定内容">
-          <el-input v-model="entryForm.content" type="textarea" :rows="6" />
+          <el-input v-model="entryForm.content" type="textarea" :rows="6" data-testid="form-content" />
+        </el-form-item>
+        <el-form-item label="优先级（越大越先注入）">
+          <el-input v-model.number="entryForm.priority" type="number" />
+        </el-form-item>
+        <el-form-item label="启用（停用后不参与关键词触发）">
+          <el-checkbox v-model="entryForm.enabled" />
         </el-form-item>
       </el-form>
       <template #footer>
+        <el-button v-if="editingKey" type="danger" plain data-testid="delete-entry" @click="removeEntry">
+          删除条目
+        </el-button>
         <el-button @click="showEditor = false">取消</el-button>
-        <el-button type="primary" @click="saveEntry">保存</el-button>
+        <el-button type="primary" data-testid="save-entry" @click="saveEntry">保存</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
-import { ElMessage } from 'element-plus'
+/**
+ * 世界观页（N8 方案 A）：**设定集按小说绑定**，走 `/api/novel/{id}/lorebooks`。
+ *
+ * 改之前这一页是**两处虚构**：
+ *   1. 「条目」tab 的 `entries` 是页面内写死的数组（一条「盖亚大陆」），刷新即丢；
+ *   2. 「地图」tab 打的是 `/novel/current/map`，而服务端没有 `current` 这个概念 →
+ *      拿 `novel_id="current"` 找书 → 404，还被空 catch 静默吞掉 —— 读写其实都是坏的。
+ *
+ * 本版的三条约定：
+ *   - **左侧分类 = 本书的设定集名**（动态）。原来写死的六个分类（地理/历史/魔法/势力/人物/其他）
+ *     退役：「类型」维度是方案 B 的议题（见 `docs/design/P7-MVP-PLAN.md` 第四切片），
+ *     不在这里偷偷加字段。
+ *   - 编辑态**不允许改设定集名与条目 ID**（输入框禁用）：删旧建新那类「静默吃掉另一条」
+ *     的坑本项目已经踩过两次（N9 伏笔、素材库同名），这里从交互上关掉。
+ *   - 地图图片只在本机预览、**未上传**，界面必须说清（后端 `/map/image` 目前是占位）。
+ */
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Collection, Folder, Location, Picture, Plus } from '@element-plus/icons-vue'
 import {
-  Plus, Folder, Location, Timer, MagicStick, OfficeBuilding, UserFilled, Picture,
-} from '@element-plus/icons-vue'
-import api from '../utils/api'
+  createNovelLorebook,
+  deleteNovelLorebook,
+  errorDetail,
+  fetchNovelLorebooks,
+  fetchNovelMap,
+  fetchNovels,
+  saveNovelMap,
+  updateNovelLorebook,
+  type ApiLorebook,
+  type ApiLorebookEntry,
+  type ApiMapMarker,
+  type NovelBrief,
+} from '../utils/api'
+import { useNovelStore } from '../stores/novel'
 
-interface LoreEntry {
-  id: string
-  name: string
-  category: string
-  keys: string[]
-  content: string
-}
+const novelStore = useNovelStore()
 
-interface MapMarker {
-  id: string
-  name: string
-  x: number
-  y: number
-  lore_entry_id?: string
-  description?: string
+const novels = ref<NovelBrief[]>([])
+const novelId = ref('')
+const books = ref<ApiLorebook[]>([])
+const errorMsg = ref('')
+
+/** 记住作者上次选的书（与角色卡页共用同一个键，切页回来还是同一本） */
+const LAST_NOVEL_KEY = 'story_last_novel'
+
+function rememberNovel(id: string) {
+  if (id && typeof localStorage !== 'undefined') localStorage.setItem(LAST_NOVEL_KEY, id)
 }
 
 // ── Tab ──
 const activeTab = ref('entries')
 
-// ── 条目 ──
-const entries = ref<LoreEntry[]>([
-  { id: '1', name: '盖亚大陆', category: '地理', keys: ['大陆', '盖亚'], content: '故事发生的主要大陆，由五大王国统治。' },
-])
-const activeCategory = ref('all')
-const showEditor = ref(false)
-const editingId = ref<string | null>(null)
-const entryForm = reactive({ name: '', category: '其他', keys: [] as string[], content: '' })
+// ── 条目（摊平本书全部设定集的条目；左侧按设定集过滤）──
+interface FlatEntry {
+  key: string
+  bookName: string
+  entryId: string
+  keys: string[]
+  content: string
+  priority: number
+  enabled: boolean
+  /** 原样带着后端字段：编辑保存时**必须原样写回**，否则会被后端默认值打回（评审 P0-1） */
+  category: string
+  position: string
+}
 
-const filteredEntries = computed(() => {
-  if (activeCategory.value === 'all') return entries.value
-  return entries.value.filter((e) => e.category === activeCategory.value)
+const activeCategory = ref('all')
+
+const flatEntries = computed<FlatEntry[]>(() =>
+  books.value.flatMap((b) =>
+    Object.entries(b.entries || {}).map(([entryId, e]) => ({
+      key: `${b.name}::${entryId}`,
+      bookName: b.name,
+      entryId,
+      keys: e.keys || [],
+      content: e.content || '',
+      priority: e.priority ?? 50,
+      enabled: e.enabled !== false,
+      category: e.category || 'general',
+      position: e.position || 'after_char',
+    })),
+  ),
+)
+
+const filteredEntries = computed(() =>
+  activeCategory.value === 'all'
+    ? flatEntries.value
+    : flatEntries.value.filter((e) => e.bookName === activeCategory.value),
+)
+
+const showEditor = ref(false)
+/** 编辑态用**结构化**身份，不用 `book::entry` 拼串再 split —— 名字里含 `::` 就解析错位（评审 P2-6） */
+const editingBook = ref<string | null>(null)
+const editingEntry = ref<string | null>(null)
+/** 编辑前的原始条目：保存时以它为底合并，保证表单没暴露的后端字段（category/position）原样写回（评审 P0-1） */
+const editingSnapshot = ref<ApiLorebookEntry | null>(null)
+const entryForm = reactive({
+  bookName: '',
+  entryId: '',
+  keys: [] as string[],
+  content: '',
+  priority: 50,
+  enabled: true,
 })
 
-function editEntry(entry: LoreEntry) {
-  editingId.value = entry.id
-  Object.assign(entryForm, { name: entry.name, category: entry.category, keys: [...entry.keys], content: entry.content })
+function resetEditor() {
+  editingBook.value = null
+  editingEntry.value = null
+  editingSnapshot.value = null
+}
+
+function startNewEntry() {
+  resetEditor()
+  Object.assign(entryForm, {
+    bookName: activeCategory.value !== 'all' ? activeCategory.value : books.value[0]?.name || '',
+    entryId: '',
+    keys: [],
+    content: '',
+    priority: 50,
+    enabled: true,
+  })
   showEditor.value = true
 }
 
-function saveEntry() {
-  if (!entryForm.name) return
-  if (editingId.value) {
-    const idx = entries.value.findIndex((e) => e.id === editingId.value)
-    if (idx >= 0) entries.value[idx] = { id: editingId.value, ...entryForm }
-  } else {
-    entries.value.push({ id: crypto.randomUUID(), ...entryForm })
-  }
-  showEditor.value = false
-  editingId.value = null
-  entryForm.name = ''
-  entryForm.category = '其他'
-  entryForm.keys = []
-  entryForm.content = ''
+function editEntry(entry: FlatEntry) {
+  editingBook.value = entry.bookName
+  editingEntry.value = entry.entryId
+  editingSnapshot.value =
+    books.value.find((b) => b.name === entry.bookName)?.entries?.[entry.entryId] || null
+  Object.assign(entryForm, {
+    bookName: entry.bookName,
+    entryId: entry.entryId,
+    keys: [...entry.keys],
+    content: entry.content,
+    priority: entry.priority,
+    enabled: entry.enabled,
+  })
+  showEditor.value = true
 }
 
-// ── 地图 ──
+async function saveEntry() {
+  if (!novelId.value) {
+    ElMessage.warning('先选一本小说')
+    return
+  }
+  const bookName = entryForm.bookName.trim()
+  if (!bookName) {
+    ElMessage.warning('设定集名不能为空')
+    return
+  }
+  const entryId = (entryForm.entryId || '').trim() || `e${Date.now().toString(36)}`
+  const existing = books.value.find((b) => b.name === bookName)
+  const book: ApiLorebook = {
+    name: bookName,
+    description: existing?.description || '',
+    entries: { ...(existing?.entries || {}) },
+  }
+  // 以**原条目**为底合并：`category`/`position` 这类表单没暴露的后端字段必须原样带回去。
+  // 否则 PUT 整本会让它们被打回默认值 —— category 还被地名一致性校验依赖（评审 P0-1）。
+  book.entries[entryId] = {
+    ...(editingBook.value === bookName ? editingSnapshot.value || {} : {}),
+    ...(existing?.entries?.[entryId] || {}),
+    keys: entryForm.keys,
+    content: entryForm.content,
+    priority: Number(entryForm.priority) || 50,
+    enabled: entryForm.enabled,
+  }
+  try {
+    if (existing) await updateNovelLorebook(novelId.value, bookName, book)
+    else await createNovelLorebook(novelId.value, book)
+    showEditor.value = false
+    resetEditor()
+    await loadBooks()
+    ElMessage.success('已保存')
+  } catch (e: any) {
+    ElMessage.error(errorDetail(e, '保存失败'))
+  }
+}
+
+async function removeEntry() {
+  if (!editingBook.value || !editingEntry.value || !novelId.value) return
+  const bookName = editingBook.value
+  const entryId = editingEntry.value
+  const book = books.value.find((b) => b.name === bookName)
+  if (!book) return
+  const remaining = Object.keys(book.entries).filter((k) => k !== entryId)
+  const lastOne = remaining.length === 0
+  try {
+    // 删条目也要确认；「最后一条会连带删掉整个设定集」必须**单独说清**（评审 P1-2：
+    // 原来删条目无确认，且删最后一条会连整本一起删却只提示「已删除」）
+    await ElMessageBox.confirm(
+      lastOne
+        ? `「${entryId}」是「${bookName}」的最后一条条目，删除后这个设定集也会一起消失。`
+        : `删除条目「${entryId}」？`,
+      '确认删除',
+      { type: 'warning' },
+    )
+  } catch {
+    return // 作者取消
+  }
+  const entries = { ...book.entries }
+  delete entries[entryId]
+  try {
+    // 最后一个条目被删掉 → 整本设定集也没意义了，一起删（不然留个空壳）
+    if (lastOne) await deleteNovelLorebook(novelId.value, bookName)
+    else await updateNovelLorebook(novelId.value, bookName, { ...book, entries })
+    showEditor.value = false
+    resetEditor()
+    // 该设定集已消失 → 过滤条件要回退，否则左栏没有这一项、列表恒空（评审 P1-3）
+    if (lastOne && activeCategory.value === bookName) activeCategory.value = 'all'
+    await loadBooks()
+    ElMessage.success(lastOne ? `已删除条目与设定集「${bookName}」` : '已删除')
+  } catch (e: any) {
+    ElMessage.error(errorDetail(e, '删除失败'))
+  }
+}
+
+async function removeLorebook() {
+  if (!novelId.value || activeCategory.value === 'all') return
+  const name = activeCategory.value
+  try {
+    await ElMessageBox.confirm(`删除设定集「${name}」？它的全部条目都会一起没。`, '确认删除', {
+      type: 'warning',
+    })
+  } catch {
+    return // 作者取消
+  }
+  try {
+    await deleteNovelLorebook(novelId.value, name)
+    activeCategory.value = 'all'
+    await loadBooks()
+    ElMessage.success('已删除')
+  } catch (e: any) {
+    ElMessage.error(errorDetail(e, '删除失败'))
+  }
+}
+
+// ── 加载 ──
+async function loadBooks() {
+  if (!novelId.value) {
+    books.value = []
+    return
+  }
+  try {
+    books.value = await fetchNovelLorebooks(novelId.value)
+    errorMsg.value = ''
+  } catch (e: any) {
+    books.value = []
+    errorMsg.value = errorDetail(e, '读取设定集失败')
+  }
+}
+
+onMounted(async () => {
+  try {
+    novels.value = await fetchNovels()
+  } catch (e: any) {
+    errorMsg.value = e?.message || '读取小说列表失败'
+    return
+  }
+  // 选书优先级与角色卡页一致（三级）：写作页当前那本 > 上次记住的 > **最近更新的那本**。
+  // 第三级要**显式按 updated 排序** —— 不能依赖 `list_novels()` 恰好按 updated 倒序返回，
+  // 那是隐式依赖后端排序，后端一换序就漂移（评审 P2-4；CharactersView 是显式排的）。
+  const remembered =
+    typeof localStorage !== 'undefined' ? localStorage.getItem(LAST_NOVEL_KEY) || '' : ''
+  const preferred = novelStore.currentNovel?.id || ''
+  const byRecency = [...novels.value].sort((a, b) =>
+    String(b.updated || '').localeCompare(String(a.updated || '')),
+  )
+  const ids = byRecency.map((n) => n.id)
+  novelId.value = [preferred, remembered].find((id) => id && ids.includes(id)) || ids[0] || ''
+})
+
+// novelId 变化 → 记住 + 清过滤 + 清地图状态 + 重新拉（原来是手挂在 @change 上，容易漏）
+watch(novelId, (id) => {
+  if (!id) return
+  rememberNovel(id)
+  activeCategory.value = 'all'
+  books.value = []
+  // 地图状态必须随手一起清：否则从 A 书切到 B 书后仍显示 A 的图与标记，
+  // 保存时还会把 A 的 image_path 写进 B（跨书污染，评审 P1-1）
+  resetMapState()
+  loadBooks()
+})
+
+// ── 地图（带 novel_id；失败不再静默）──
 const mapImage = ref('')
-const markers = ref<MapMarker[]>([])
+const markers = ref<ApiMapMarker[]>([])
+const mapNotice = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 const mapWrapper = ref<HTMLElement | null>(null)
 const saving = ref(false)
@@ -240,27 +522,42 @@ const selectedMarkerId = ref<string | null>(null)
 const newMarkerPos = ref<{ x: number; y: number } | null>(null)
 const newMarkerForm = reactive({ name: '', description: '' })
 
-const selectedMarker = computed(() => markers.value.find(m => m.id === selectedMarkerId.value) || null)
+const selectedMarker = computed(
+  () => markers.value.find((m) => m.id === selectedMarkerId.value) || null,
+)
+
+watch([novelId, activeTab], ([id, tab]) => {
+  if (id && tab === 'map') loadMapData()
+})
 
 function selectMapImage() {
   fileInput.value?.click()
 }
 
+/** 清空一切与"当前这本书的地图"绑定的状态（切书时用，评审 P1-1） */
+function resetMapState() {
+  mapImage.value = ''
+  markers.value = []
+  selectedMarkerId.value = null
+  newMarkerPos.value = null
+  saved.value = false
+  mapNotice.value = ''
+}
+
 function onImageSelected(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
-  const url = URL.createObjectURL(file)
-  mapImage.value = url
-  // Auto-load existing map data for this novel
-  loadMapData()
+  mapImage.value = URL.createObjectURL(file)
+  saved.value = false // 换了图 → 上一次的"已保存"不再成立（评审 P2-8）
 }
 
 function onMapClick(e: MouseEvent) {
   if (!mapWrapper.value) return
   const rect = mapWrapper.value.getBoundingClientRect()
-  const x = ((e.clientX - rect.left) / rect.width) * 100
-  const y = ((e.clientY - rect.top) / rect.height) * 100
-  newMarkerPos.value = { x, y }
+  newMarkerPos.value = {
+    x: ((e.clientX - rect.left) / rect.width) * 100,
+    y: ((e.clientY - rect.top) / rect.height) * 100,
+  }
   newMarkerForm.name = ''
   newMarkerForm.description = ''
   selectedMarkerId.value = null
@@ -279,38 +576,48 @@ function addMarker() {
   saved.value = false
 }
 
-function selectMarker(m: MapMarker) {
+function selectMarker(m: ApiMapMarker) {
   selectedMarkerId.value = m.id
   newMarkerPos.value = null
 }
 
 function deleteMarker() {
   if (!selectedMarkerId.value) return
-  markers.value = markers.value.filter(m => m.id !== selectedMarkerId.value)
+  markers.value = markers.value.filter((m) => m.id !== selectedMarkerId.value)
   selectedMarkerId.value = null
   saved.value = false
 }
 
 async function loadMapData() {
+  if (!novelId.value) return
   try {
-    const res = await api.get('/novel/current/map')
-    const data = res.data?.data || res.data
-    if (data?.markers?.length) {
-      markers.value = data.markers
-    }
-    if (data?.image_path && !mapImage.value) {
-      mapImage.value = data.image_path
-    }
-  } catch { /* 忽略 */ }
+    const data = await fetchNovelMap(novelId.value)
+    // 先清后赋：`image_path` 为空时也必须把上一本书的图清掉（评审 P1-1）
+    mapImage.value = data.image_path || ''
+    markers.value = data.markers || []
+    selectedMarkerId.value = null
+    newMarkerPos.value = null
+    saved.value = false
+    mapNotice.value = ''
+  } catch (e: any) {
+    // 旧实现这里是空 catch：地图坏了但界面看不出来。现在报出来。
+    mapNotice.value = `地图读取失败：${errorDetail(e, '未知错误')}`
+    ElMessage.error(mapNotice.value)
+  }
 }
 
 async function saveMapData() {
+  if (!novelId.value) {
+    ElMessage.warning('先选一本小说')
+    return
+  }
   saving.value = true
   saved.value = false
   try {
-    await api.post('/novel/current/map', {
-      image_path: mapImage.value,
-      markers: markers.value.map(m => ({
+    await saveNovelMap(novelId.value, {
+      // blob: 是本机临时地址，存进服务端没有意义（换个会话就失效）→ 不写它
+      image_path: mapImage.value.startsWith('blob:') ? '' : mapImage.value,
+      markers: markers.value.map((m) => ({
         id: m.id,
         name: m.name,
         x: m.x,
@@ -320,9 +627,11 @@ async function saveMapData() {
       })),
     })
     saved.value = true
+    mapNotice.value = ''
     ElMessage.success('地图标记已保存')
-  } catch (err: any) {
-    ElMessage.error(`保存失败: ${err.message}`)
+  } catch (e: any) {
+    mapNotice.value = `地图保存失败：${errorDetail(e, '未知错误')}`
+    ElMessage.error(mapNotice.value)
   } finally {
     saving.value = false
   }
@@ -338,6 +647,10 @@ async function saveMapData() {
   margin-bottom: 16px;
 }
 .view-header h3 { margin: 0; font-size: 18px; }
+.header-actions { display: flex; align-items: center; gap: 8px; }
+.err { color: var(--el-color-danger); font-size: 13px; margin: 0 0 8px; }
+.hint { font-size: 13px; color: var(--el-text-color-secondary); margin: 0 0 8px; }
+.hint.small { font-size: 12px; padding: 8px; }
 .world-tabs { min-height: 400px; }
 .world-content { display: flex; gap: 20px; }
 .world-categories { width: 180px; min-width: 180px; }
@@ -351,13 +664,14 @@ async function saveMapData() {
 .entry-card:hover { border-color: var(--el-color-primary); }
 .entry-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .entry-name { font-weight: 600; font-size: 15px; }
+.entry-priority { font-size: 12px; color: var(--el-text-color-secondary); margin-left: auto; }
 .entry-keys { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
 .entry-content { font-size: 13px; color: var(--el-text-color-regular); line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .entries-empty { display: flex; justify-content: center; padding: 40px 0; }
 
 /* 地图 */
 .map-container { max-width: 800px; }
-.map-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.map-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .save-hint { font-size: 12px; color: #52c41a; }
 .map-placeholder {
   border: 2px dashed var(--el-border-color); border-radius: 12px;

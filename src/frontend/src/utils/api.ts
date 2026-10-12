@@ -623,3 +623,96 @@ export async function searchStyleProfiles(q: string): Promise<StyleProfileInfo[]
   const res = await api.get(`/style/search${params}`)
   return (res.data as StyleListResponse).profiles
 }
+
+// ── 世界观设定集（N8 方案 A：按小说绑定，走 `/api/novel/{id}/lorebooks`）──────
+
+export interface ApiLorebookEntry {
+  keys: string[]
+  content: string
+  priority: number
+  enabled: boolean
+  // 后端 `LorebookEntry` 还有这两个字段（默认 general / after_char）：
+  // `category` 被 `api/routes/novel.py` 的地名一致性校验依赖（category 属于地理/地点类 → known_places）。
+  // 前端类型必须带上它们，否则「编辑一条」会把这两个字段打回默认值（评审 P0-1：逐条静默丢字段）。
+  category?: string
+  position?: string
+}
+
+export interface ApiLorebook {
+  name: string
+  description?: string
+  entries: Record<string, ApiLorebookEntry>
+  version?: string
+}
+
+/** 列出**这本书**的设定集（含全部条目） */
+export async function fetchNovelLorebooks(novelId: string): Promise<ApiLorebook[]> {
+  const res = await api.get(`/novel/${novelId}/lorebooks`)
+  return _unwrap(res.data, '读取设定集失败')?.books || []
+}
+
+export async function createNovelLorebook(novelId: string, book: ApiLorebook): Promise<ApiLorebook> {
+  const res = await api.post(`/novel/${novelId}/lorebooks`, book)
+  return _unwrap(res.data, '新建设定集失败')
+}
+
+export async function updateNovelLorebook(
+  novelId: string,
+  name: string,
+  book: ApiLorebook,
+): Promise<ApiLorebook> {
+  const res = await api.put(`/novel/${novelId}/lorebooks/${encodeURIComponent(name)}`, book)
+  return _unwrap(res.data, '更新设定集失败')
+}
+
+export async function deleteNovelLorebook(novelId: string, name: string): Promise<void> {
+  const res = await api.delete(`/novel/${novelId}/lorebooks/${encodeURIComponent(name)}`)
+  _unwrap(res.data, '删除设定集失败')
+}
+
+// ── 世界地图（地图属于某一本书）──────────────────────
+//
+// 注意（N8 修复）：这里必须带 novel_id。旧代码打的是 `/novel/current/map`，
+// 而服务端**没有 current 这个概念** → 后端拿 `novel_id="current"` 找书 → 404，
+// 且被前端的空 catch 静默吞掉 —— 地图读写其实一直是坏的。
+
+export interface ApiMapMarker {
+  id: string
+  name: string
+  x: number
+  y: number
+  lore_entry_id?: string
+  description?: string
+}
+
+export interface ApiMapData {
+  image_path?: string
+  markers?: ApiMapMarker[]
+}
+
+export async function fetchNovelMap(novelId: string): Promise<ApiMapData> {
+  const res = await api.get(`/novel/${novelId}/map`)
+  return _unwrap(res.data, '读取地图失败') || {}
+}
+
+/**
+ * 把 axios 错误翻成能读的话。
+ *
+ * `_unwrap` 只认响应体里的 `{success:false, message}`；而路由里的 `HTTPException(404)`
+ * 走的是另一条路（`{detail: ...}`），直接 `e.message` 只会得到
+ * 「Request failed with status code 404」—— 等于没告诉作者原因（评审 P2-7）。
+ */
+export function errorDetail(e: unknown, fallback: string): string {
+  const anyE = e as { response?: { data?: { detail?: unknown; message?: unknown } }; message?: string }
+  const detail = anyE?.response?.data?.detail ?? anyE?.response?.data?.message
+  if (typeof detail === 'string' && detail) return detail
+  return anyE?.message || fallback
+}
+
+export async function saveNovelMap(
+  novelId: string,
+  payload: { image_path: string; markers: ApiMapMarker[] },
+): Promise<ApiMapData> {
+  const res = await api.post(`/novel/${novelId}/map`, payload)
+  return _unwrap(res.data, '保存地图失败') || {}
+}

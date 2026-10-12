@@ -240,3 +240,85 @@ names: ['A_B']
 
 **另修（同一类「提示不诚实」）**：`cli.py` 的 `character example` / `lore example` 原来打印
 `<目录>/<名字>.json`，撞名时与实际文件名不符 → 改为打印**目录**并说明命名规则。
+
+---
+
+# N8 第四切片评审（世界观页接后端 + 地图 404 修复）
+
+> 评审方式：`opencode run --agent requirements`（**只读**评审，未改代码）
+> 评审日期：2026-10-12
+> 说明：提示词明确禁止写文件（上一轮有评审进程因写 `/tmp` 探针被权限拒绝而中途停止、无产出）。
+
+## 结论性核对结果
+
+- 复核门禁：vitest **112 passed / 15 files**、`vue-tsc` exit 0、后端 lorebook/map 相关子集 51 passed
+  —— 与提交前一致。
+- 两个实测缺陷确实修掉了：条目走后端（不再渲染写死的「盖亚大陆」）、地图带 `novel_id` 且失败不再空 `catch`；
+  旧的两条假测试（自己调 mock 再断言 mock 的返回）已替换。
+- **但结论是「不构成通过」**：本切片最核心的卖点「用交互关掉静默覆盖」**并未真正成立**，
+  且地图存在**跨书串图**。
+
+## P0-1 · 编辑条目会静默抹掉 `category` / `position`
+
+后端 `LorebookEntry` 除 `keys/content/priority/enabled` 外还有 `category`（默认 `general`）与
+`position`（默认 `after_char`），而前端 `ApiLorebookEntry` 类型与 `saveEntry` 构造的新条目**都不含**这两个字段
+→ PUT 整本后，**被编辑那条**的这两个字段被打回默认值（未编辑的走 `{...existing.entries}` 仍保留，
+所以是**逐条静默丢失**）。影响不止是字段少了一个：`category` 被 `api/routes/novel.py` 的地名一致性校验依赖
+（`category ∈ 地理/地点…` → `known_places`），作者标为「地理」的条目一经编辑就永久退出该校验。
+**这正是本切片声称关掉的那类静默覆盖。**
+
+## P1（3 条）
+
+- **P1-1 切书不清地图图片 → 跨书串图**：`loadMapData` 只在 `image_path` 为真时赋值、**从不清空** `mapImage`。
+  从 A 书（有图）切到 B 书停在 map tab：B 显示 A 的图、B 的标记叠在 A 的图上；若 A 的 `image_path` 是服务端路径，
+  保存时会把 A 的图路径写进 B。
+- **P1-2 删除条目无确认，且删「最后一条」会连整本设定集一起删**却只提示「已删除」。
+  对比 `removeLorebook` 是有确认的 —— 前后不一致。
+- **P1-3 删/改条目后 `activeCategory` 可能悬空**：该设定集已从 `books` 消失，左栏没有这一项，
+  但过滤条件仍是旧书名 → 列表恒空，且顶部「删除设定集」按钮仍显示。
+
+## P2（9 条，全部已处置）
+
+P2-1 删除设定集用例是**假断言**（confirm 被 mock 成恒 resolve 且从未断言）· P2-2 换书用例只断言调用参数、
+未断言 DOM 随之切换 · P2-3 E2E 只验了地图 **GET**，没验 **写** · P2-4 第三级选书与 `CharactersView` 已漂移
+（隐式依赖后端排序）· P2-5 模板里 `**本机预览**` 的星号是字面量 · P2-6 `book::entry` 拼串作 key、
+`split('::')` 解析（名字含 `::` 就删错）· P2-7 地图 404 时界面只显示 axios 的 status code ·
+P2-8 换图后「已保存」仍亮 · P2-9 新建条目 `category` 恒为 `general`，地名校验对其不生效（应写进文档）。
+
+评审**已核对无问题**的点：`api.ts` 为纯追加无回归；无残留未用 import/变量、逻辑代码已无 `current` 字样；
+`blob:` 置空与「未上传」提示方向一致（后端 `/map/image` 确为占位，前端根本没调它）。
+
+## 逐条处置表（⑥ 修复）
+
+| 编号 | 处置 |
+|---|---|
+| P0-1 | `ApiLorebookEntry` 补 `category`/`position`；`FlatEntry` 带上；`editEntry` 存**原条目快照**，`saveEntry` **以原条目为底合并**写回。补回归用例：编辑带 `category:"地理"` 的条目后，PUT 载荷里该字段仍在 |
+| P1-1 | 新增 `resetMapState()`，切书时清 `mapImage/markers/选中/新建位置/saved/notice`；`loadMapData` 改成**先清后赋**（`mapImage = data.image_path \|\| ''`） |
+| P1-2 | 删条目加 `ElMessageBox.confirm`；**最后一条**用单独文案说明「设定集也会一起消失」 |
+| P1-3 | 删掉该书最后一条后把 `activeCategory` 回退到 `all` |
+| P2-1 | 断言 `confirm` 被调用（含名称）+ 补「取消则不删」反例 |
+| P2-2 | 让 A/B 返回**不同**设定集，断言切换后旧书内容从 DOM 消失 |
+| P2-3 | E2E 补地图**写**闭环：上传图 → 加标记 → 保存 → **直查接口**确认标记落盘，并断言 `image_path` 不含 `blob:` |
+| P2-4 | 第三级选书改**显式** `byRecency`（按 `updated` 排序），注释与文档统一口径 |
+| P2-5 | 模板改 `<strong>本机预览</strong>` |
+| P2-6 | 编辑态身份改**结构化**两字段（`editingBook`/`editingEntry`），弃用 `::` 拼串解析 |
+| P2-7 | 新增 `api.ts::errorDetail()`：优先取 `e.response.data.detail`，地图读写的错误提示不再只有 status code |
+| P2-8 | 换图后 `saved = false` |
+| P2-9 | `P7-MVP-PLAN.md` 第四切片下补「已知副作用」块：新建条目 `category` 恒 `general`、地名校验对其不生效，方案 B 时重新对齐 |
+
+**修复后门禁**：前端 vitest **115 passed / 15 files**、`vue-tsc` 0、`vite build` ✓ 5.93s；
+后端 **1007 passed / 3 skipped**，覆盖率 94.43%，ruff / mypy 全绿；浏览器 E2E **7 passed**（含新增的地图写闭环）。
+
+## 评审未提、但本轮自查发现的一处（记录不修）
+
+**应用没注册 Element Plus 的 `zh-CN` locale** → 内置组件按钮显示英文（`ElMessageBox` 实际是
+"OK"/"Cancel"，E2E 里已按 class 而非文案点击）。这是全局 UI 一致性缺陷，改它要动 `main.ts`、
+影响面超出本切片，**留待单独处理**。
+
+## 一处偏离评审建议（记录理由）
+
+P2-3 的实现方式：评审建议「加 marker → 保存 → **刷新仍在**」。但地图图片本身不落盘（切片明确不做图片上传），
+刷新后没有图就渲染不出标记 —— 所以断言落在**接口落盘**（直查 `GET /novel/{id}/map` 拿到标记）
+而不是「刷新后 DOM 里还能看见」。语义上仍然证明「写路径真的通了」，只是不假装图片能持久化。
+另外把弹窗的「设定集」字段从 `el-select allow-create` 改成普通 `el-input`（自选改动）：
+`allow-create` 的下拉在单测与 E2E 里都很脆，而设定集名本来就是自由文本。

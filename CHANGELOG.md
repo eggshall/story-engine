@@ -41,6 +41,18 @@
     否则对升级前已被损坏的书，一次 load→save 就把**仍可恢复**的那张卡永久抹掉
   - `cli.py` 的 `character example` / `lore example` 不再打印按名字猜的路径（撞名时会不符）
   - 评审 `docs/design/reviews/N8-REVIEW.md` 第三轮（**无 P0**；1 个 P1 + 3 个 P2 全处置）
+- ✅ **N8 第四切片** — **世界观页（`/world`）接后端** + **地图 404 修复**：
+  - 「条目」tab 从**页面内写死的数组**改为走 `/api/novel/{id}/lorebooks`；左侧分类 = 本书**设定集**动态列表
+    （原写死的 地理/历史/魔法/势力/人物 退役，「类型」维度留待方案 B）
+  - 选书复用角色卡页的三级优先（写作页当前那本 → `story_last_novel` → 最近更新的那本）
+  - 地图 tab 原先打 `/novel/current/map`，而服务端**没有 current 这个概念** → 404 被空 `catch` 静默吞
+    （**读写都是坏的**）→ 改为按书 `GET/POST /api/novel/{id}/map`，失败**报出来**
+  - 编辑条目**以原条目为底合并**写回，杜绝后端字段（`category`/`position`）被默认值打回（评审 P0-1）；
+    编辑态禁改设定集名/条目 ID；删条目与删设定集都要确认，删「最后一条」单独说清会连带删设定集
+  - 地图图片只在本机预览、**未上传**，界面写清；`blob:` 地址不写进服务端
+  - 评审 `docs/design/reviews/N8-REVIEW.md` 第四轮（**1 个 P0 + 3 个 P1 + 9 个 P2 全处置**）
+  - E2E：`e2e/worldview.e2e.ts`（落盘 → 刷新仍在 → 换书看不到 → 地图读写 → 删除后不复活）
+  - ⬜ 仍未做：关键词触发预览（后端触发引擎已是纯函数，缺预览入口）；Element Plus `zh-CN` locale 未注册
 - ✅ **N9** — **伏笔账本 + 注入 + 校验（最小版）**：`PlotThread` + `Novel.threads`
   （真源 `novel.json`，镜像 `threads/`）；装配器 `threads` 槽位（`priority=SUMMARIES`）；
   校验新增 `dangling_threads` / `unknown_payoff`；`/api/novel/{id}/threads` 5 个端点
@@ -52,8 +64,10 @@
 ### 质量基线
 
 - 后端：**1007 passed / 3 skipped**，覆盖率 **94.43%**（门禁 75%）；ruff / mypy（68 文件）全绿
-- 前端：vitest **104 passed**；vue-tsc 0；vite build ✓
-- 评审：`docs/design/reviews/N0–N6、N8、N9-REVIEW.md`（各节点均"需补充/修复后通过 → 已逐条处置"）
+- 前端：vitest **115 passed / 15 files**；vue-tsc 0；vite build ✓
+- 浏览器 E2E：`e2e/` **7 passed**（n0×4 鉴权 / n2 SSE / n6 审稿 / worldview 世界观页）
+- 评审：`docs/design/reviews/N0–N6、N8、N9-REVIEW.md`（各节点均"需补充/修复后通过 → 已逐条处置"；
+  N8 含四轮切片评审）
 - E2E：后端真实 HTTP 到 `tests/e2e/`（N1/N2/N3/N4b/N5/N6/N8/N9）；前端真实浏览器到 `e2e/`
 
 ## [0.8.0] — 2026-08-03
