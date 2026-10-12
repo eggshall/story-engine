@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import zlib from 'node:zlib'
+import { deflateSync } from 'node:zlib'
 
 /**
  * 造一张纯色 PNG。
@@ -20,7 +20,9 @@ const CRC_TABLE = (() => {
 
 function crc32(buf: Buffer): number {
   let c = -1
-  for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8)
+  for (let i = 0; i < buf.length; i++) {
+    c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8)
+  }
   return (c ^ -1) >>> 0
 }
 
@@ -43,7 +45,7 @@ function makeSolidPng(w: number, h: number): Buffer {
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     pngChunk('IHDR', ihdr),
-    pngChunk('IDAT', zlib.deflateSync(raw)),
+    pngChunk('IDAT', deflateSync(raw)),
     pngChunk('IEND', Buffer.alloc(0)),
   ])
 }
@@ -142,6 +144,57 @@ test('世界观页 · 设定集按书绑定：落盘 → 刷新仍在 → 换书
   await page.reload()
   await expect(page.locator('.world-categories')).toContainText(BOOK, { timeout: 20_000 })
   await expect(page.locator('.world-entries')).toContainText(ENTRY_CONTENT)
+
+  // ── 4b. 条目「类型」跨层闭环（第五切片）：UI 选的「地点」必须被后端**一致性校验**认成地名 ──
+  // 只断言"表单把 category 存进了盘"是不够的 —— `category` 的消费者是后端
+  // `POST /{id}/analyze/consistency`（白名单在 `lore/categories.py`）。这条把
+  // "UI 写的值 = 校验认的值" 钉在真 HTTP 上，防的是"填了却不生效"的静默失效。
+  const placeKey = '天阙城'
+  await page.locator('[data-testid="new-entry"]').click()
+  await page.locator('[data-testid="form-book"]').fill(BOOK)
+  await page.locator('[data-testid="form-entry-id"]').fill('capital')
+  // 触发关键词必须填：地名校验取的是条目的 `keys`（`known_places.extend(entry.keys)`）。
+  // 驱动配方是探针（probe_keys.mjs）实测出来的：
+  //   · 那个 input 未聚焦时带 `is-hidden`、尺寸 0 → 直接点 `input` 会挂到超时；
+  //     必须点**根节点**（可见）让焦点进去；
+  //   · `fill()` 注入不吃，必须用键盘 `type()`；`allow-create` 才会出现"创建"项，`Enter` 选中。
+  await page.locator('[data-testid="form-keys"]').click()
+  await page.keyboard.type(placeKey, { delay: 20 })
+  await page.keyboard.press('Enter')
+  // 就在**紧挨着**的地方断言关键词已进表单：第一次跑时它没进去，错误却在三步之后才冒出来
+  await expect(page.locator('[data-testid="form-keys"]')).toContainText(placeKey)
+  await page.locator('[data-testid="form-content"]').fill(`${placeKey}是东域都城`)
+  await page.locator('[data-testid="form-category"]').click()
+  // 所有 select 的下拉项在 DOM 里是**全局堆着**的，必须限定到可见的那个，否则可能命中隐藏项
+  await page
+    .locator('.el-select-dropdown:visible .el-select-dropdown__item')
+    .filter({ hasText: '地点' })
+    .first()
+    .click()
+  await page.locator('[data-testid="save-entry"]').click()
+  await expect(page.locator('.world-entries')).toContainText(placeKey, { timeout: 20_000 })
+
+  // 卡片上必须看得见类型
+  await expect(
+    page.locator('.entry-card', { hasText: placeKey }).locator('[data-testid="entry-category"]'),
+  ).toHaveText('地点')
+
+  // 类型过滤：选「地点」后，老条目（没有 category → 其他）要隐藏，「全部类型」能还原
+  await page.locator('[data-testid="type-filter-地点"]').click()
+  await expect(page.locator('.world-entries')).toContainText(placeKey)
+  await expect(page.locator('.world-entries')).not.toContainText(ENTRY_CONTENT)
+  await page.locator('[data-testid="type-filter-all"]').click()
+  await expect(page.locator('.world-entries')).toContainText(ENTRY_CONTENT)
+
+  const consistency = await page.request.post(`/api/novel/${idA}/analyze/consistency`, {
+    headers: H,
+    data: { text: `${placeKey}的城墙很高` },
+  })
+  const consistencyBody = await consistency.json()
+  expect(
+    consistencyBody?.data?.checked_places ?? 0,
+    'UI 选的「地点」必须被后端一致性校验认成地名',
+  ).toBeGreaterThanOrEqual(1)
 
   // ── 5. 换书看不到（按书隔离）──
   await pickNovel(TITLE_B)

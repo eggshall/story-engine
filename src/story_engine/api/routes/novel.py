@@ -17,6 +17,7 @@ from story_engine.api.schemas import (
     StyleAnalyzeRequest,
 )
 from story_engine.core.models import Novel
+from story_engine.lore.categories import PLACE_CATEGORIES
 from story_engine.tools.fixed_tasks import check_name_consistency
 from story_engine.tools.novel_storage import (
     backup_chapter,
@@ -349,12 +350,11 @@ def api_check_consistency(novel_id: str, req: ConsistencyRequest) -> ApiResponse
     # 收集已知角色名
     known_names = list(novel.characters.keys())
 
-    # 从 lorebook 中提取地名
+    # 从 lorebook 中提取地名（白名单见 `lore/categories.py` —— 唯一取值定义处）
     known_places: list = []
     for lb in novel.lorebooks.values():
         for entry_id, entry in lb.entries.items():
-            # 尝试从分类中识别地名
-            if hasattr(entry, 'category') and entry.category in ('地理', '地点', 'location', 'geography', 'place'):
+            if entry.category in PLACE_CATEGORIES:
                 known_places.extend(entry.keys)
 
     issues = check_name_consistency(text, known_names, known_places)

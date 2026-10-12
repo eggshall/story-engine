@@ -6,11 +6,15 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
 from story_engine.api.main import app
 from story_engine.core.models import Novel
+from story_engine.lore.categories import CATEGORY_LABELS, DEFAULT_CATEGORY, PLACE_CATEGORIES
 from story_engine.tools.novel_storage import save_novel
 
 client = TestClient(app)
@@ -309,3 +313,80 @@ class TestRequestBoundaryExtras:
         resp = _create(body={"name": "", "entries": {}})
 
         assert resp.status_code == 422
+
+
+class TestCategoryVocabulary:
+    """把「UI 写的类型值」与「后端地名校验认的值」钉在一起（第五切片）。
+
+    `category` 是**自由字符串**（磁盘模型不校验取值），后端只在一处消费它：
+    `api_check_consistency` 把 `category ∈ PLACE_CATEGORIES` 的条目的 `keys` 当作已知地名。
+    前端下拉写「地点」—— 这是前后端的**隐式契约**，本类把它变成显式的。
+
+    **注意**：这几条**不是 RED**（改动前就该通过）。它们的价值是防止别人改前端文案、
+    改白名单或重构时把契约悄悄弄断 —— 本项目已被"填了却不生效"类静默失效咬过多次
+    （N9 驼峰字段被丢、N8 第四切片 `category` 被抹掉）。
+    """
+
+    def test_place_category_feeds_the_place_check(self):
+        _create(body=_book(entries={
+            "capital": {"keys": ["天阙城"], "content": "东域都城", "category": "地点"},
+        }))
+
+        data = client.post(
+            "/api/novel/novel_a/analyze/consistency", json={"text": "天阙城"}
+        ).json()["data"]
+
+        assert data["checked_places"] == 1
+
+    def test_default_category_is_not_a_place(self):
+        """默认值（「其他」）不能被当成地名 —— 否则所有条目的 keys 都会涌进地名校验。"""
+        _create(body=_book(entries={
+            "region": {"keys": ["东域"], "content": "区域名", "category": "general"},
+        }))
+
+        data = client.post(
+            "/api/novel/novel_a/analyze/consistency", json={"text": "东域"}
+        ).json()["data"]
+
+        assert data["checked_places"] == 0
+
+    def test_category_round_trips_through_the_api(self):
+        """接口必须**原样存取** `category`（它现在只有前端表单一个写入方）。"""
+        _create(body=_book(entries={
+            "capital": {"keys": ["天阙城"], "content": "x", "category": "地点"},
+        }))
+
+        assert _books_by_name()["天玄大陆"]["entries"]["capital"]["category"] == "地点"
+
+    def test_exactly_one_ui_type_means_place(self):
+        """UI 类型里**恰好一个**算地名（「地点」）；多一个就会让下拉语义与校验语义分叉。"""
+        assert PLACE_CATEGORIES & set(CATEGORY_LABELS) == {"地点"}
+
+    def test_every_ui_type_has_a_nonempty_stored_value(self):
+        """UI 下拉的存储值不能是空串（空串既不在白名单、也会让卡片标签查不到）。"""
+        assert all(value.strip() for value in CATEGORY_LABELS)
+        assert DEFAULT_CATEGORY in CATEGORY_LABELS, "「其他」必须能选，否则老条目没法原样保留"
+
+    # 仓库根：tests/test_lore/<本文件> → parents[2]
+    VUE = Path(__file__).resolve().parents[2] / "src/frontend/src/views/WorldView.vue"
+
+    def test_frontend_vocabulary_matches_backend(self):
+        """**跨语言**契约：前端那份手抄的类型表必须与后端逐项且同序（第五切片评审 P1-1）。
+
+        前端是 `.vue` 里的 TS 字面量，import 不到 Python 侧，所以这条测试**读源码文本**解析比对。
+        后端加/改/删一个类型而忘了同步前端（或反之），它会红 —— 这是这两份表之间**唯一**的保障
+        （`categories.py` 原先自称"唯一定义处"，那是假的，评审已纠正）。
+        """
+        src = self.VUE.read_text(encoding="utf-8")
+        block = re.search(r"const CATEGORY_OPTIONS = \[(.*?)\]\s*as const", src, re.S)
+        assert block, f"没找到前端 CATEGORY_OPTIONS（改名/搬家了？请同步这条测试）：{self.VUE}"
+
+        pairs = re.findall(
+            r"\{\s*value:\s*'([^']*)'\s*,\s*label:\s*'([^']*)'\s*\}", block.group(1)
+        )
+        assert pairs, "前端 CATEGORY_OPTIONS 解析出 0 项 —— 解析规则可能过期了"
+
+        assert dict(pairs) == CATEGORY_LABELS, (
+            f"前端类型表与后端不一致：前端={dict(pairs)} 后端={CATEGORY_LABELS}"
+        )
+        assert [value for value, _ in pairs] == list(CATEGORY_LABELS), "顺序也要一致（下拉顺序）"

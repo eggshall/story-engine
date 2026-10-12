@@ -315,6 +315,68 @@ vite build ✓ · 浏览器 E2E **7 passed**（n0×4 / n2 / n6 / worldview）
   会在下一次保存章节时被整目录清空（作者眼里是"卡莫名其妙没了"）。
   回归用例：`tests/test_characters/test_novel_scoped_cards.py::test_card_survives_chapter_save`。
 
+**第五切片：条目「类型」—— 暴露**早已存在**的 `category` 字段（2026-10-12，用户已点头）**
+
+> 起因：第四切片把「分类」入口撤掉后，新建条目的 `category` 恒为 `general`，
+> 而 `category` 是**后端地名校验**的输入之一（`novel.py::api_check_consistency` →
+> `category ∈ {地理, 地点, location, geography, place}` 的条目，其 `keys` 进 `known_places`）
+> —— 等于该校验对**所有新条目**形同关闭。
+
+**事实核实（先读代码再定方案）**：
+
+| 事实 | 位置 |
+|---|---|
+| `category` 字段**早就存在**，默认 `general` | `core/models.py::LorebookEntry.category` |
+| 接口层**本来就收** `category`（请求模型继承它） | `api/routes/lorebooks.py::LorebookEntryRequest` |
+| 唯一消费者 = 地名一致性校验 | `api/routes/novel.py:357`（`POST /{id}/analyze/consistency` 的 `checked_places`） |
+
+**决策**：**不做**「每本书预置 5 个设定集」那条替代路 —— 它会让左侧菜单固定死、
+作者不能自定义分组（想建「东域修仙体系」「第三卷新增势力」这类容器做不到），
+而它换来的那个好处（零模型变更）**本来就成立**。保留「设定集 = 作者自由分组」，
+**类型只作为条目属性 + 可选过滤**，不动左侧菜单结构。
+
+**取值表（UI 标签 → 存储值）**：
+
+| UI 标签 | 存储值 | 说明 |
+|---|---|---|
+| 地点 | `地点` | **必须用这个字面量**；地名校验的白名单是 `地理/地点/location/geography/place`，UI 只写 `地点` |
+| 物品 | `物品` | |
+| 规则 | `规则` | 世界规则 / 死设定 |
+| 势力 | `势力` | |
+| 世界观 | `世界观` | |
+| 其他 | `general` | 与历史数据的默认值一致 —— 老条目显示出来就是「其他」，无需迁移 |
+
+**交互**：条目表单加「类型」下拉（默认「其他」）；条目卡片显示类型标签；
+条目列表上方加一行类型过滤（全部/地点/物品/规则/势力/世界观/其他）。
+
+**验收**：① 保存后 `category` 真的落盘；② 卡片标签与类型过滤按类型工作；
+③ **填「地点」的条目真的进 `known_places`**（后端钉桩：`POST /{id}/analyze/consistency`
+的 `checked_places` 随之为 1）；④ 编辑条目仍不改动类型（第四切片 P0-1 的回归继续有效）；
+⑤ 老条目（`general`）照常加载并显示为「其他」。
+
+**非目标**：AI 自动分类、从正文推断类型、按类型重排左侧菜单、批量改类型、
+迁移历史数据（老条目保持 `general`，作者想用就手动改）。
+
+**另一个字段的明确不做（第五切片评审 P2-4）**：`LorebookEntry.position`
+（`after_char` / `before_char`）目前**没有任何消费者** —— 注入器不读它，`rg` 全仓只在
+磁盘模型、前端类型与测试里出现。本切片**不暴露、也不删**它（删要动磁盘模型、属另一个议题）；
+等注入器真正按位置拼装时再谈 UI。写在这里是为了让下一位 reviewer 不用再问一遍。
+
+**风险与纪律（第五切片评审 P1-1 修正过一次说法）**：`category` 是**自由字符串**（后端不校验取值），
+取值**无法只定义一处** —— 前端下拉在 `.vue` 里、后端白名单在 Python 里，跨语言 import 不了。
+所以现状是**两份手抄表 + 一条跨语言测试**（`test_frontend_vocabulary_matches_backend`
+读 `.vue` 源码文本与 `CATEGORY_LABELS` 逐项同序比对）。**加/改/删类型必须同时改两处**，
+否则那条测试必红 —— 这是这两份表之间唯一的保障，别再写成"唯一定义处"。
+
+**实施结果（2026-10-12）**：后端 `lore/categories.py` 落地并把 `novel.py` 的行内元组换成
+`PLACE_CATEGORIES`；前端表单/卡片/过滤三处接上；**顺手修掉一个真 bug** —— 编辑弹窗里
+`v-if="editingKey"` 引用的是**未定义变量**（上一轮 P2-6 重构漏改），导致「删除条目」按钮
+**永远不显示**，即"弹窗里根本删不掉条目"。钉桩两层：后端 `TestCategoryVocabulary`（5 条，
+其中 4 条属"钉住既有契约"、不是 RED）+ E2E 第 4b 步（UI 选「地点」→ 真 HTTP 打
+`POST /{id}/analyze/consistency` → `checked_places ≥ 1`）。
+门禁：pytest **1012 passed / 3 skipped**（94.49%，mypy 69 文件）· vitest **121 / 15 files** ·
+vue-tsc 0 · build ✓ · 浏览器 E2E **7 passed**。
+
 ### 9.1.1 N9 设计要点 —— 伏笔账本 + 注入 + 校验（最小版）
 
 > 动机来源：同类产品的对照结论（`~/wiki/comparisons/product-novel-tools-setting-modules.md`）——

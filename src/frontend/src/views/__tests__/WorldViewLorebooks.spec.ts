@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const mockFetchNovels = vi.fn()
 const mockFetchNovelLorebooks = vi.fn()
@@ -111,7 +111,11 @@ async function mountWorldView() {
           emits: ['update:modelValue'],
           template: '<select :value="modelValue"><slot /></select>',
         },
-        ElOption: true,
+        ElOption: {
+          name: 'ElOption',
+          props: ['label', 'value'],
+          template: '<div class="el-option" :data-value="value">{{ label }}</div>',
+        },
         ElTabs: { name: 'ElTabs', template: '<div class="el-tabs"><slot /></div>' },
         ElTabPane: { name: 'ElTabPane', template: '<div class="el-tab-pane"><slot /></div>' },
         ElCheckbox: true,
@@ -257,5 +261,204 @@ describe('WorldView 条目 tab → 后端设定集', () => {
     expect(wrapper.text()).toContain('乙书内容')
     expect(wrapper.text()).not.toContain('境界：筑基→金丹')
     expect(wrapper.find('.world-categories').text()).not.toContain('天玄大陆')
+  })
+})
+
+/**
+ * 第五切片：条目「类型」（`LorebookEntry.category`）。
+ *
+ * 这一维**不是新字段** —— `core/models.py` 里早有 `category`（默认 `general`），
+ * 接口层也早就放行它。缺的只是 UI：新建条目的 category 恒为 general，
+ * 于是「地名一致性校验」对所有新条目形同关闭（`novel.py` 只认 地理/地点 这类值）。
+ *
+ * 取值表见 `src/story_engine/lore/categories.py`（后端唯一定义处）。
+ */
+describe('WorldView 条目「类型」', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFetchNovels.mockResolvedValue(NOVELS)
+    mockFetchNovelLorebooks.mockResolvedValue(BOOKS)
+  })
+
+  /** 弹窗里的「类型」下拉（按 `data-testid` 找，不靠 DOM 顺序猜第几个 ElSelect） */
+  function categorySelect(wrapper: any) {
+    const found = wrapper
+      .findAllComponents({ name: 'ElSelect' })
+      .find((c: any) => c.attributes('data-testid') === 'form-category')
+    expect(found, '弹窗里应有 data-testid="form-category" 的「类型」下拉').toBeTruthy()
+    return found
+  }
+
+  it('新建条目时选的「类型」必须写进 payload 的 category', async () => {
+    const { wrapper, flushPromises } = await mountWorldView()
+
+    await wrapper.find('[data-testid="new-entry"]').trigger('click')
+    await wrapper.find('[data-testid="form-book"]').setValue('新区')
+    await wrapper.find('[data-testid="form-entry-id"]').setValue('e9')
+    await wrapper.find('[data-testid="form-content"]').setValue('天阙城是东域都城')
+    categorySelect(wrapper).vm.$emit('update:modelValue', '地点')
+    await wrapper.find('[data-testid="save-entry"]').trigger('click')
+    await flushPromises()
+
+    const payload = mockCreateNovelLorebook.mock.calls[0][1]
+    expect(payload.entries.e9.category).toBe('地点')
+  })
+
+  it('「其他」选项的存储值必须是历史默认值 general（改成就地取「其他」会让老数据分叉）', async () => {
+    const { wrapper, flushPromises } = await mountWorldView()
+
+    await wrapper.find('[data-testid="new-entry"]').trigger('click')
+    await flushPromises()
+
+    // 断言**标签 → 存储值**的映射本身（弹窗里渲染出的选项带 data-value），
+    // 而不是直接 $emit('general') 把映射跳过去（评审 P2-3）
+    const options = wrapper.findAll('.el-option')
+    const other = options.find((o) => o.text() === '其他')
+    expect(other, '下拉里应有「其他」选项').toBeTruthy()
+    expect(other!.attributes('data-value')).toBe('general')
+    const place = options.find((o) => o.text() === '地点')
+    expect(place!.attributes('data-value')).toBe('地点')
+  })
+
+  it('条目卡片显示类型；老条目（没有 category）显示为「其他」而不是空白', async () => {
+    mockFetchNovelLorebooks.mockResolvedValue([
+      {
+        name: '天玄大陆',
+        entries: {
+          capital: { keys: ['天阙城'], content: '东域都城', priority: 50, enabled: true, category: '地点' },
+          legacy: { keys: ['古法'], content: '第四切片之前建的条目', priority: 50, enabled: true },
+        },
+      },
+    ])
+    const { wrapper } = await mountWorldView()
+
+    const cards = wrapper.findAll('.entry-card')
+    const labels = cards.map((c) => c.find('[data-testid="entry-category"]').text())
+    expect(labels).toContain('地点')
+    expect(labels).toContain('其他')
+  })
+
+  it('未知类型（老数据「地理」）原样显示，并能被同名的过滤按钮筛出来', async () => {
+    // 评审 P1-2：兜底成「其他」会让同一条目"卡片显示其他、点其他找不到、编辑器里又写着地理"
+    mockFetchNovelLorebooks.mockResolvedValue([
+      {
+        name: '天玄大陆',
+        entries: {
+          old: { keys: ['东域'], content: '老数据用的是「地理」', priority: 50, enabled: true, category: '地理' },
+          capital: { keys: ['天阙城'], content: '东域都城', priority: 50, enabled: true, category: '地点' },
+        },
+      },
+    ])
+    const { wrapper, flushPromises } = await mountWorldView()
+
+    const card = wrapper.findAll('.entry-card').find((c) => c.text().includes('老数据用的是「地理」'))
+    expect(card!.find('[data-testid="entry-category"]').text()).toBe('地理')
+
+    // 过滤行要给出「地理」这一项（否则这条只能靠"全部类型"看，等于筛不出来）
+    const chip = wrapper.find('[data-testid="type-filter-地理"]')
+    expect(chip.exists(), '过滤行应包含数据里出现的未知类型').toBe(true)
+    await chip.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('老数据用的是「地理」')
+    expect(wrapper.text()).not.toContain('东域都城')
+  })
+
+  it('按类型过滤：只剩该类型的条目，「全部」能还原', async () => {
+    mockFetchNovelLorebooks.mockResolvedValue([
+      {
+        name: '天玄大陆',
+        entries: {
+          capital: { keys: ['天阙城'], content: '东域都城', priority: 50, enabled: true, category: '地点' },
+          sword: { keys: ['青锋'], content: '上古神兵', priority: 50, enabled: true, category: '物品' },
+        },
+      },
+    ])
+    const { wrapper, flushPromises } = await mountWorldView()
+    expect(wrapper.text()).toContain('上古神兵')
+
+    await wrapper.find('[data-testid="type-filter-地点"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('东域都城')
+    expect(wrapper.text()).not.toContain('上古神兵')
+
+    await wrapper.find('[data-testid="type-filter-all"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('上古神兵')
+  })
+
+  it('编辑老条目时下拉**真的列出**它的原值（不是只把值塞进表单）', async () => {
+    mockFetchNovelLorebooks.mockResolvedValue([
+      {
+        name: '天玄大陆',
+        entries: {
+          culti: { keys: ['筑基'], content: '旧', priority: 80, enabled: true, category: '地理' },
+        },
+      },
+    ])
+    const { wrapper, flushPromises } = await mountWorldView()
+
+    await wrapper.find('.entry-card').trigger('click')
+    await flushPromises()
+
+    // 断言渲染出来的选项里真有它 —— 删掉 `categoryOptions` 追加原值那段逻辑这条必须红（评审 P2-3）
+    const options = wrapper.findAll('.el-option').map((o) => o.text())
+    expect(options).toContain('地理（原有取值）')
+    expect(categorySelect(wrapper).props('modelValue')).toBe('地理')
+  })
+
+  it('保存后被当前筛选挡住 → 自动切回「全部」并说明（不然"已保存"却找不到）', async () => {
+    const { wrapper, flushPromises } = await mountWorldView()
+
+    // 先把类型过滤设成「地点」，再新建一条默认类型（其他）的条目
+    await wrapper.find('[data-testid="type-filter-地点"]').trigger('click')
+    await wrapper.find('[data-testid="new-entry"]').trigger('click')
+    await wrapper.find('[data-testid="form-book"]').setValue('天玄大陆')
+    await wrapper.find('[data-testid="form-entry-id"]').setValue('e9')
+    await wrapper.find('[data-testid="form-content"]').setValue('新设定')
+    await wrapper.find('[data-testid="save-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="type-filter-地点"]').exists()).toBe(true)
+    // 关键行为：列表里真的能看到它（不是嘴上说已保存）
+    expect(wrapper.text()).toContain('境界：筑基→金丹')
+    const msg = (ElMessage.success as any).mock.calls.map((c: any[]) => String(c[0])).join(' | ')
+    expect(msg).toContain('已切回')
+  })
+
+  it('换书时两个过滤一起复位（老书选了「地点」，新书只有「其他」条目也要看得见）', async () => {
+    mockFetchNovelLorebooks.mockImplementation(async (id: string) =>
+      id === 'novel_b'
+        ? [{ name: '乙书设定', entries: { b1: { keys: ['乙'], content: '乙书内容', priority: 50, enabled: true } } }]
+        : BOOKS,
+    )
+    const { wrapper, flushPromises } = await mountWorldView()
+
+    await wrapper.find('[data-testid="type-filter-地点"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('都市背景：二环以内限行') // 被「地点」筛掉了
+
+    await wrapper.findComponent({ name: 'ElSelect' }).vm.$emit('update:modelValue', 'novel_b')
+    await flushPromises()
+
+    // 类型过滤若跨书保留，这条 general 的条目就会被挡住 —— 那就是"只清了一个过滤"
+    expect(wrapper.text()).toContain('乙书内容')
+  })
+
+  it('编辑已有条目时「删除条目」按钮必须在（曾因 v-if 引用未定义变量而永远不显示）', async () => {
+    const { wrapper, flushPromises } = await mountWorldView()
+
+    // 新建态不该有删除按钮
+    await wrapper.find('[data-testid="new-entry"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="delete-entry"]').exists()).toBe(false)
+
+    // 切到编辑态（弹窗桩始终渲染，所以直接点卡片即可）
+    await wrapper.find('.entry-card').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="delete-entry"]').exists()).toBe(true)
   })
 })

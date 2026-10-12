@@ -59,10 +59,33 @@
             <p v-if="books.length === 0" class="hint small">这本书还没有设定集</p>
           </div>
           <div class="world-entries">
+            <div class="type-filter">
+              <el-button
+                size="small"
+                :type="activeType === 'all' ? 'primary' : 'default'"
+                data-testid="type-filter-all"
+                @click="activeType = 'all'"
+              >
+                全部类型
+              </el-button>
+              <el-button
+                v-for="o in filterTypes"
+                :key="o.value"
+                size="small"
+                :type="activeType === o.value ? 'primary' : 'default'"
+                :data-testid="`type-filter-${o.value}`"
+                @click="activeType = o.value"
+              >
+                {{ o.label }}
+              </el-button>
+            </div>
             <div v-for="entry in filteredEntries" :key="entry.key" class="entry-card" @click="editEntry(entry)">
               <div class="entry-header">
                 <span class="entry-name">{{ entry.entryId }}</span>
                 <el-tag size="small">{{ entry.bookName }}</el-tag>
+                <el-tag size="small" type="warning" data-testid="entry-category">{{
+                  categoryLabel(entry.category)
+                }}</el-tag>
                 <el-tag v-if="!entry.enabled" size="small" type="info">已停用</el-tag>
                 <span class="entry-priority">P{{ entry.priority }}</span>
               </div>
@@ -72,7 +95,7 @@
               <div class="entry-content">{{ entry.content }}</div>
             </div>
             <div v-if="filteredEntries.length === 0" class="entries-empty">
-              <el-empty :description="novelId ? '暂无条目' : '先选一本小说'" />
+              <el-empty :description="emptyDescription" />
             </div>
           </div>
         </div>
@@ -201,8 +224,19 @@
             allow-create
             default-first-option
             placeholder="输入关键词，回车添加"
+            data-testid="form-keys"
             style="width: 100%"
           />
+        </el-form-item>
+        <el-form-item label="类型">
+          <el-select
+            v-model="entryForm.category"
+            data-testid="form-category"
+            placeholder="选择类型"
+            style="width: 100%"
+          >
+            <el-option v-for="o in categoryOptions" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
         </el-form-item>
         <el-form-item label="设定内容">
           <el-input v-model="entryForm.content" type="textarea" :rows="6" data-testid="form-content" />
@@ -215,7 +249,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button v-if="editingKey" type="danger" plain data-testid="delete-entry" @click="removeEntry">
+        <el-button v-if="editingEntry" type="danger" plain data-testid="delete-entry" @click="removeEntry">
           删除条目
         </el-button>
         <el-button @click="showEditor = false">取消</el-button>
@@ -294,6 +328,40 @@ interface FlatEntry {
 
 const activeCategory = ref('all')
 
+/**
+ * 条目「类型」取值表 —— 与后端 `src/story_engine/lore/categories.py::CATEGORY_LABELS`
+ * **必须一致**（后端是唯一定义处：它的 `PLACE_CATEGORIES` 还决定哪些类型算"地名"、
+ * 会进 `POST /{id}/analyze/consistency` 的一致性校验）。两边一旦漂移就会出现
+ * "填了却不生效"的静默失效，所以后端 `TestCategoryVocabulary` 与
+ * `e2e/worldview.e2e.ts` 各钉一道。
+ */
+const CATEGORY_OPTIONS = [
+  { value: '地点', label: '地点' },
+  { value: '物品', label: '物品' },
+  { value: '规则', label: '规则' },
+  { value: '势力', label: '势力' },
+  { value: '世界观', label: '世界观' },
+  { value: 'general', label: '其他' },
+] as const
+
+/** 与磁盘模型默认值一致：老条目（含第四切片之前建的）都是这个值，显示为「其他」，无需迁移 */
+const DEFAULT_CATEGORY = 'general'
+
+/**
+ * 卡片/下拉上的显示文案。**未知取值原样返回**（历史数据里有「地理」「灵兽」这类
+ * 不在 UI 表里的值）—— 兜底成「其他」会让同一条目在一屏里有三种身份：
+ * 卡片显示「其他」、点「其他」过滤又找不到它、进编辑器却写着「地理（原有取值）」
+ * （第五切片评审 P1-2）。
+ */
+function categoryLabel(value?: string): string {
+  const hit = CATEGORY_OPTIONS.find((o) => o.value === value)
+  if (hit) return hit.label
+  return value && value.trim() ? value : '其他'
+}
+
+/** 类型过滤（'all' = 不按类型筛；与左侧「设定集」是两个独立的维度） */
+const activeType = ref('all')
+
 const flatEntries = computed<FlatEntry[]>(() =>
   books.value.flatMap((b) =>
     Object.entries(b.entries || {}).map(([entryId, e]) => ({
@@ -311,10 +379,43 @@ const flatEntries = computed<FlatEntry[]>(() =>
 )
 
 const filteredEntries = computed(() =>
-  activeCategory.value === 'all'
-    ? flatEntries.value
-    : flatEntries.value.filter((e) => e.bookName === activeCategory.value),
+  (
+    activeCategory.value === 'all'
+      ? flatEntries.value
+      : flatEntries.value.filter((e) => e.bookName === activeCategory.value)
+  ).filter((e) => activeType.value === 'all' || e.category === activeType.value),
 )
+
+/**
+ * 过滤行用的类型清单 = UI 表 + **数据里实际出现的**未知取值（历史数据，如「地理」）。
+ * 不把未知取值塞进「其他」桶：卡片标签按原值显示，过滤就必须能用同一个原值筛，
+ * 否则又是"显示一种身份、过滤另一种身份"（第五切片评审 P1-2）。
+ */
+const filterTypes = computed(() => {
+  const opts = CATEGORY_OPTIONS.map((o) => ({ value: o.value as string, label: o.label as string }))
+  const seen = new Set(opts.map((o) => o.value))
+  for (const e of flatEntries.value) {
+    if (e.category && !seen.has(e.category)) {
+      opts.push({ value: e.category, label: e.category })
+      seen.add(e.category)
+    }
+  }
+  return opts
+})
+
+/** 空态不能只说"暂无条目"：可能只是被筛选挡住了（第五切片评审 P2-2） */
+const emptyDescription = computed(() => {
+  if (!novelId.value) return '先选一本小说'
+  if (flatEntries.value.length === 0) return '暂无条目'
+  const dims = [activeCategory.value !== 'all' ? '设定集' : '', activeType.value !== 'all' ? '类型' : '']
+  return `当前筛选（${dims.filter(Boolean).join(' + ')}）下没有条目 —— 试试「全部」或「全部类型」`
+})
+
+/** 回到"不筛"：两个过滤一起复位，避免只清一个导致列表恒空（第五切片评审 P2-2） */
+function resetFilters() {
+  activeCategory.value = 'all'
+  activeType.value = 'all'
+}
 
 const showEditor = ref(false)
 /** 编辑态用**结构化**身份，不用 `book::entry` 拼串再 split —— 名字里含 `::` 就解析错位（评审 P2-6） */
@@ -329,6 +430,21 @@ const entryForm = reactive({
   content: '',
   priority: 50,
   enabled: true,
+  category: DEFAULT_CATEGORY,
+})
+
+/**
+ * 下拉选项：UI 的五个类型 + 「其他」。**编辑老条目时把它的原值也列进来** ——
+ * 后端历史数据里有「地理」这类不在 UI 表里的取值，若下拉显示不出来、用户一保存就被
+ * 改成「其他」，等于静默改写别人的数据（与评审 P0-1 同一类病）。
+ */
+const categoryOptions = computed(() => {
+  const opts: { value: string; label: string }[] = CATEGORY_OPTIONS.map((o) => ({ ...o }))
+  const cur = entryForm.category
+  if (cur && !opts.some((o) => o.value === cur)) {
+    opts.push({ value: cur, label: `${cur}（原有取值）` })
+  }
+  return opts
 })
 
 function resetEditor() {
@@ -346,6 +462,7 @@ function startNewEntry() {
     content: '',
     priority: 50,
     enabled: true,
+    category: DEFAULT_CATEGORY,
   })
   showEditor.value = true
 }
@@ -362,6 +479,8 @@ function editEntry(entry: FlatEntry) {
     content: entry.content,
     priority: entry.priority,
     enabled: entry.enabled,
+    // 带上原值（含 UI 表里没有的历史取值），下拉会把它作为一个选项列出来
+    category: entry.category || DEFAULT_CATEGORY,
   })
   showEditor.value = true
 }
@@ -392,14 +511,25 @@ async function saveEntry() {
     content: entryForm.content,
     priority: Number(entryForm.priority) || 50,
     enabled: entryForm.enabled,
+    category: entryForm.category || DEFAULT_CATEGORY,
   }
+  const savedCategory = entryForm.category || DEFAULT_CATEGORY
   try {
     if (existing) await updateNovelLorebook(novelId.value, bookName, book)
     else await createNovelLorebook(novelId.value, book)
     showEditor.value = false
     resetEditor()
+    // 存下来的这条会不会被**当前筛选**挡住（类型或设定集）？挡住就切回「全部」并说清，
+    // 否则作者看到"已保存"却在列表里找不到刚存的条目（第五切片评审 P2-1）
+    const hiddenByType = activeType.value !== 'all' && activeType.value !== savedCategory
+    const hiddenByBook = activeCategory.value !== 'all' && activeCategory.value !== bookName
+    if (hiddenByType || hiddenByBook) resetFilters()
     await loadBooks()
-    ElMessage.success('已保存')
+    ElMessage.success(
+      hiddenByType || hiddenByBook
+        ? '已保存（已切回「全部」，否则这条会被当前筛选挡住）'
+        : '已保存',
+    )
   } catch (e: any) {
     ElMessage.error(errorDetail(e, '保存失败'))
   }
@@ -435,7 +565,7 @@ async function removeEntry() {
     showEditor.value = false
     resetEditor()
     // 该设定集已消失 → 过滤条件要回退，否则左栏没有这一项、列表恒空（评审 P1-3）
-    if (lastOne && activeCategory.value === bookName) activeCategory.value = 'all'
+    if (lastOne && activeCategory.value === bookName) resetFilters()
     await loadBooks()
     ElMessage.success(lastOne ? `已删除条目与设定集「${bookName}」` : '已删除')
   } catch (e: any) {
@@ -455,7 +585,7 @@ async function removeLorebook() {
   }
   try {
     await deleteNovelLorebook(novelId.value, name)
-    activeCategory.value = 'all'
+    resetFilters()
     await loadBooks()
     ElMessage.success('已删除')
   } catch (e: any) {
@@ -498,11 +628,12 @@ onMounted(async () => {
   novelId.value = [preferred, remembered].find((id) => id && ids.includes(id)) || ids[0] || ''
 })
 
-// novelId 变化 → 记住 + 清过滤 + 清地图状态 + 重新拉（原来是手挂在 @change 上，容易漏）
+// novelId 变化 → 记住 + 清**两个**过滤（设定集 + 类型）+ 清地图状态 + 重新拉
+// （原来是手挂在 @change 上，容易漏；注释原先写"清过滤"却只清了 activeCategory，评审 P2-2）
 watch(novelId, (id) => {
   if (!id) return
   rememberNovel(id)
-  activeCategory.value = 'all'
+  resetFilters()
   books.value = []
   // 地图状态必须随手一起清：否则从 A 书切到 B 书后仍显示 A 的图与标记，
   // 保存时还会把 A 的 image_path 写进 B（跨书污染，评审 P1-1）
@@ -656,6 +787,7 @@ async function saveMapData() {
 .world-categories { width: 180px; min-width: 180px; }
 .world-categories .el-menu { border-right: none; }
 .world-entries { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+.type-filter { display: flex; flex-wrap: wrap; gap: 6px; }
 .entry-card {
   padding: 14px; background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-light); border-radius: 8px;

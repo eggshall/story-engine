@@ -53,6 +53,19 @@
   - 评审 `docs/design/reviews/N8-REVIEW.md` 第四轮（**1 个 P0 + 3 个 P1 + 9 个 P2 全处置**）
   - E2E：`e2e/worldview.e2e.ts`（落盘 → 刷新仍在 → 换书看不到 → 地图读写 → 删除后不复活）
   - ⬜ 仍未做：关键词触发预览（后端触发引擎已是纯函数，缺预览入口）；Element Plus `zh-CN` locale 未注册
+- ✅ **条目「类型」**（第五切片）—— 暴露**早已存在**的 `LorebookEntry.category`：
+  - 后端新增 `lore/categories.py`（`DEFAULT_CATEGORY`/`CATEGORY_LABELS`/`PLACE_CATEGORIES`）作为**取值唯一定义处**，
+    `api/routes/novel.py` 的地名校验改用它（原先行内元组 + `hasattr`）
+  - 前端条目表单加「类型」下拉（地点/物品/规则/势力/世界观/其他）、卡片显示类型、条目区加类型过滤行
+  - **修掉一个真 bug**：编辑弹窗 `v-if="editingKey"` 是未定义变量（上一轮 P2-6 漏改）
+    → 「删除条目」按钮**永远不显示**，等于弹窗里删不掉条目
+  - 澄清一个流传的误判：**不需要动数据模型**，字段与接口早就支持，缺的只是 UI
+  - 钉桩两层：后端 `TestCategoryVocabulary`（UI 写的值 = 校验认的值）+ E2E 第 4b 步真 HTTP 跨层
+  - 评审 `docs/design/reviews/N8-REVIEW.md` 第五轮（**无 P0；2 个 P1 + 5 个 P2 全处置**），
+    其中 P1-1 揭穿了我"取值唯一定义处"的假保障 → 补**跨语言契约测试**（读 `.vue` 源码比对，
+    已用 `/tmp/verify_drift.py` 证明 4 类分叉都能抓到）；P1-2 修掉「卡片显示其他、点其他又找不到」
+    的自相矛盾（未知类型原样显示 + 过滤行动态列出数据里出现的类型）
+  - 决定**不采用**"每本书预置 5 个设定集"那条替代路（会让作者不能自定义分组，而它换来的"零模型变更"本来就成立）
 - ✅ **N9** — **伏笔账本 + 注入 + 校验（最小版）**：`PlotThread` + `Novel.threads`
   （真源 `novel.json`，镜像 `threads/`）；装配器 `threads` 槽位（`priority=SUMMARIES`）；
   校验新增 `dangling_threads` / `unknown_payoff`；`/api/novel/{id}/threads` 5 个端点
@@ -63,11 +76,11 @@
 
 ### 质量基线
 
-- 后端：**1007 passed / 3 skipped**，覆盖率 **94.43%**（门禁 75%）；ruff / mypy（68 文件）全绿
-- 前端：vitest **115 passed / 15 files**；vue-tsc 0；vite build ✓
+- 后端：**1013 passed / 3 skipped**，覆盖率 **94.49%**（门禁 75%）；ruff / mypy（69 文件）全绿
+- 前端：vitest **124 passed / 15 files**；vue-tsc 0；vite build ✓
 - 浏览器 E2E：`e2e/` **7 passed**（n0×4 鉴权 / n2 SSE / n6 审稿 / worldview 世界观页）
 - 评审：`docs/design/reviews/N0–N6、N8、N9-REVIEW.md`（各节点均"需补充/修复后通过 → 已逐条处置"；
-  N8 含四轮切片评审）
+  N8 含五轮切片评审）
 - E2E：后端真实 HTTP 到 `tests/e2e/`（N1/N2/N3/N4b/N5/N6/N8/N9）；前端真实浏览器到 `e2e/`
 
 ## [0.8.0] — 2026-08-03

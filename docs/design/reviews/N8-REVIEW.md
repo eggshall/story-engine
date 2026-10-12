@@ -322,3 +322,37 @@ P2-3 的实现方式：评审建议「加 marker → 保存 → **刷新仍在**
 而不是「刷新后 DOM 里还能看见」。语义上仍然证明「写路径真的通了」，只是不假装图片能持久化。
 另外把弹窗的「设定集」字段从 `el-select allow-create` 改成普通 `el-input`（自选改动）：
 `allow-create` 的下拉在单测与 E2E 里都很脆，而设定集名本来就是自由文本。
+
+---
+
+# N8 第五切片：条目「类型」（暴露早已存在的 `category`）
+
+> 评审方式：`opencode run --agent requirements`，**只读评审，未改任何文件**
+> （提示词里硬约束「不要创建或修改任何文件」，验证只用只读命令 / `.venv/bin/python -c` / 跑既有测试）。
+> 报告：`/tmp/n8_review5_out.md`（**1526 行**）。
+
+## 结论
+
+**无 P0**；**2 个 P1 + 5 个 P2，全部处置**。评审开篇即用 `git diff` 确认 `novel.py` 只是把行内元组
+换成 `PLACE_CATEGORIES`、集合内容逐项一致，没有静默丢数据的路径。
+
+## 逐条处置
+
+| 编号 | 评审结论 | 处置 |
+|---|---|---|
+| **P1-1** | `categories.py` 自称"取值**唯一定义处**"是**假的**：前端 `WorldView.vue` 的 `CATEGORY_OPTIONS` 是另一份手抄字面量，而所谓钉桩（`test_exactly_one_ui_type_means_place`）只用**后端**常量求交、e2e 只覆盖「地点」一个值 —— 任一侧加/改类型都**不会有测试红** | ① 把注释改成实话（前后端是**两份表**、跨语言 import 不了）；② **补一条真的跨语言契约测试** `test_frontend_vocabulary_matches_backend`：读 `.vue` 源码文本，用正则解析 `CATEGORY_OPTIONS`，与 `CATEGORY_LABELS` **逐项且同序**比对；③ 用 `/tmp/verify_drift.py` 证明它**可证伪** —— 前端改标签 / 删一项 / 加一项 / 改「其他」的存储值，4 类分叉**全部被抓到** |
+| **P1-2** | `categoryLabel` 把未知值兜底成「其他」，导致同一条目在一屏里三种身份：卡片显示「其他」、点「其他」过滤**找不到**它、进编辑器却写着「地理（原有取值）」 | ① 未知值**原样返回**（只有空值才落「其他」）；② 过滤行改成 `filterTypes` = UI 表 **+ 数据里实际出现的未知取值**（有「地理」就出「地理」按钮），显示与过滤用同一个原值；③ 补用例「未知类型原样显示且能被同名按钮筛出来」 |
+| **P2-1** | 在某类型过滤下新建/改类型 → 提示「已保存」但列表里看不到它 | 保存后判断这条会不会被**当前筛选**（类型**或**设定集）挡住 → 挡住就 `resetFilters()` 并把话说全：「已保存（已切回「全部」，否则这条会被当前筛选挡住）」；补用例断言"真的看得见"+"消息里有『已切回』" |
+| **P2-2** | 两个过滤复位不一致（换书/删设定集只清 `activeCategory`），且 `watch(novelId)` 注释写"清过滤"却只清一个；空态只显示「暂无条目」，不提示是被过滤挡住 | 新增 `resetFilters()` 统一复位两处调用点 + 修正注释；空态改为 `emptyDescription`（有数据但被筛掉时说「当前筛选（设定集 + 类型）下没有条目 —— 试试「全部」或「全部类型」」）；补用例「换书后两滤镜一起复位」 |
+| **P2-3** | 两条前端用例名不副实：`:360` 只断言 `props('modelValue')`（**删掉下拉追加原值的逻辑仍会通过**）；`:303` 直接 `$emit('general')` 把「其他」标签→存储值的映射**跳过去** | ① `ElOption` 桩从 `true` 改成渲染 `<div class="el-option" :data-value>{{ label }}</div>` → 现在能断言**渲染出来的选项**：`地理（原有取值）` 真的在、`其他` 的 `data-value` 是 `general`（改成就地取「其他」必红）、`地点` 的 `data-value` 是 `地点` |
+| **P2-4** | `position`（`after_char`/`before_char`）**没有任何消费者**，UI 也没有入口，却没被记为"不做" | 写进 `P7-MVP-PLAN.md` 非目标段：**不暴露也不删**（删要动磁盘模型、属另一议题），等注入器真按位置拼装再谈 —— 让下一位 reviewer 不用再问 |
+| **P2-5** | 文档路由笔误：`POST /{id}/check-consistency`（实际是 `/{id}/analyze/consistency`）；e2e 里夹带了与本切片无关的 `deflateSync`/`crc32` 改写 | ① 两处路由改对；② 那两处改写**不是夹带**：`e2e/` 不被任何门禁做类型检查（`vue-tsc` 只覆盖 `src/frontend`），所以上一轮提交进去的 `import zlib from 'node:zlib'` 与 `for (const b of buf)` 一直带着 TS1192/TS2802 错误，本次编辑该文件时被编辑器报出来才修 —— 已在 commit message 里说明；同时记下「`e2e/` 缺类型检查」这个门禁盲区 |
+
+## 评审的专项回答（值得记住的三条）
+
+- 「模板引用未定义标识符」**只此一处**：评审自写扫描脚本对 `src/frontend/src/**/*.vue` 全量扫了模板里的
+  mustache 与各指令，除正则误报外没有第二处 —— 我修的那条（`editingKey` → `editingEntry`）是唯一的。
+- E2E 第 4b 步**可证伪**：`checked_places = len(known_places)`，而 4b 之前 A 书唯一条目 `culti`
+  没有 `category`，所以 `>= 1` **只可能**来自 4b 新建的「地点」条目。
+- E2E 里 `.el-select-dropdown:visible` 限定**必要**：`el-select` 的下拉 teleport 到 body、关闭时以
+  `display:none` 留驻，不限定会命中隐藏项。
