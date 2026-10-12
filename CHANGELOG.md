@@ -66,6 +66,20 @@
     已用 `/tmp/verify_drift.py` 证明 4 类分叉都能抓到）；P1-2 修掉「卡片显示其他、点其他又找不到」
     的自相矛盾（未知类型原样显示 + 过滤行动态列出数据里出现的类型）
   - 决定**不采用**"每本书预置 5 个设定集"那条替代路（会让作者不能自定义分组，而它换来的"零模型变更"本来就成立）
+- ✅ **关键词触发预览**（第五切片之二）—— 把"会注入哪些设定"变成可查的：
+  - 后端 `POST /api/novel/{id}/lorebooks/preview`：**复用**装配器同一个 `find_matching_entries`
+    与同一个 `LORE_MAX_ENTRIES` 上限（前端自己再实现一遍就是"两处定义"那种病），
+    返回命中条目 + **实际命中的关键词** + 优先级，并把**超出上限被丢掉的条数如实报出来**（不静默截断）
+  - 前端世界观页新增「触发预览」tab：贴一段文本 → 命中清单；没命中时说清是"没命中"而非空白；
+    界面上写明**真实写作的触发源是紧邻的上一章正文**，所以这是"预览"不是定论
+  - 测试：后端 7 例（含书间隔离、`enabled=false` 不命中、超上限自报、不存在可读失败）；
+    前端 5 例；E2E 第 4c 步真实 HTTP 闭环（含"没命中"分支）
+- 🐛 **两条迟到响应竞态**（隔离 E2E 数据目录后才稳定暴露）：地图 tab 的迟到响应会清掉作者刚选的
+  本地预览图；设定集的迟到响应会串书（A 的慢响应覆盖 B 的内容）。修法统一为
+  「**迟到的服务端响应一律丢弃**」（序号 + 当前书 id + 本机是否已改过）
+- 🔧 **E2E 数据隔离 + e2e 类型检查门禁**：`STORY_DATA_DIR` 覆盖开关 + 栈脚本指向 `/tmp/story-e2e-data`
+  （实测跑完 E2E 真实 `data/novels/` **零新增**）；`npm run typecheck:e2e` 补上 `e2e/` 的类型检查盲区
+- 🔧 **注册 Element Plus `zh-CN` locale**：内置组件文案不再中英混排（E2E 断言确认框主按钮是「确定」）
 - ✅ **N9** — **伏笔账本 + 注入 + 校验（最小版）**：`PlotThread` + `Novel.threads`
   （真源 `novel.json`，镜像 `threads/`）；装配器 `threads` 槽位（`priority=SUMMARIES`）；
   校验新增 `dangling_threads` / `unknown_payoff`；`/api/novel/{id}/threads` 5 个端点
@@ -76,9 +90,10 @@
 
 ### 质量基线
 
-- 后端：**1013 passed / 3 skipped**，覆盖率 **94.49%**（门禁 75%）；ruff / mypy（69 文件）全绿
-- 前端：vitest **124 passed / 15 files**；vue-tsc 0；vite build ✓
-- 浏览器 E2E：`e2e/` **7 passed**（n0×4 鉴权 / n2 SSE / n6 审稿 / worldview 世界观页）
+- 后端：**1025 passed / 3 skipped**，覆盖率 **94.51%**（门禁 75%）；ruff / mypy（69 文件）全绿
+- 前端：vitest **131 passed / 15 files**；vue-tsc 0；vite build ✓
+- 浏览器 E2E：`e2e/` **7 passed**（n0×4 鉴权 / n2 SSE / n6 审稿 / worldview 世界观页+预览）；
+  `npm run typecheck:e2e` 覆盖 `e2e/`（原先无人检查）
 - 评审：`docs/design/reviews/N0–N6、N8、N9-REVIEW.md`（各节点均"需补充/修复后通过 → 已逐条处置"；
   N8 含五轮切片评审）
 - E2E：后端真实 HTTP 到 `tests/e2e/`（N1/N2/N3/N4b/N5/N6/N8/N9）；前端真实浏览器到 `e2e/`

@@ -30,6 +30,7 @@ from story_engine.lore import library
 from story_engine.lore.lorebook import (
     NovelNotFound,
     delete_lorebook,
+    find_matching_entries,
     list_lorebooks,
     load_lorebook,
     save_lorebook,
@@ -103,6 +104,61 @@ def _books_payload(novel_id: str) -> dict:
         "names": names,
         "books": [b.model_dump(exclude_none=True) for b in books if b is not None],
     }
+
+
+def _books_map(novel_id: str) -> dict[str, LoreBook]:
+    """本书的设定集映射（`find_matching_entries` 要的形态）。"""
+    return {n: b for n in list_lorebooks(novel_id) if (b := load_lorebook(novel_id, n)) is not None}
+
+
+class LorebookPreviewRequest(APIModel):
+    """触发预览请求：给一段文本，问"哪些设定条目会被注入"。"""
+
+    text: str = Field(default="", max_length=200_000)
+
+
+@router.post("/novel/{novel_id}/lorebooks/preview")
+def api_preview_lorebooks(novel_id: str, req: LorebookPreviewRequest) -> ApiResponse:
+    """关键词触发预览（只读，不写盘）。
+
+    **为什么在后端算而不是前端**：匹配的真源是 `lore/lorebook.py::find_matching_entries`
+    （纯函数），装配器 `_lore_provider` 用的就是它。前端再实现一遍就会出现
+    "预览说会注入、真写时却不注入"的分叉 —— 正是第五切片评审 P1-1 批评的那类"两处定义"。
+    这里复用同一个函数、同一个上限 `LORE_MAX_ENTRIES`，并把**超出上限被丢掉的条数如实报出来**
+    （与装配器 `lore:overflow` 同一口径：不许静默截断）。
+
+    与真实写作的差别（必须说清）：真实触发源是**紧邻的上一章正文**（`previous_chapter_text`），
+    这里用的是作者自己输入的文本 —— 所以这是"预览"，不是"本次一定会注入的清单"。
+    """
+    # 懒导入：`context_sources` 会连带拉起装配器那一坨，放在函数里避免把 API 启动路径变重
+    from story_engine.writer.context_sources import LORE_MAX_ENTRIES
+
+    try:
+        books = _books_map(novel_id)
+    except NovelNotFound as e:
+        return ApiResponse(success=False, message=str(e))
+
+    text = req.text or ""
+    matched = find_matching_entries(books, text, max_results=None)
+    kept = matched[:LORE_MAX_ENTRIES]
+    return ApiResponse(
+        success=True,
+        data={
+            "matches": [
+                {
+                    "book": book_name,
+                    "entry_id": entry_id,
+                    "keys_hit": [k for k in entry.keys if k in text],
+                    "priority": entry.priority,
+                    "content": entry.content,
+                }
+                for book_name, entry_id, entry in kept
+            ],
+            "count": len(kept),
+            "overflow": max(0, len(matched) - LORE_MAX_ENTRIES),
+            "text_length": len(text),
+        },
+    )
 
 
 @router.get("/novel/{novel_id}/lorebooks")

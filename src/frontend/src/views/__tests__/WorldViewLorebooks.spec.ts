@@ -19,6 +19,7 @@ const mockFetchNovelLorebooks = vi.fn()
 const mockCreateNovelLorebook = vi.fn()
 const mockUpdateNovelLorebook = vi.fn()
 const mockDeleteNovelLorebook = vi.fn()
+const mockPreviewNovelLorebooks = vi.fn()
 
 vi.mock('../../utils/api', () => {
   const api = {
@@ -37,6 +38,7 @@ vi.mock('../../utils/api', () => {
     createNovelLorebook: (...a: any[]) => mockCreateNovelLorebook(...a),
     updateNovelLorebook: (...a: any[]) => mockUpdateNovelLorebook(...a),
     deleteNovelLorebook: (...a: any[]) => mockDeleteNovelLorebook(...a),
+    previewNovelLorebooks: (...a: any[]) => mockPreviewNovelLorebooks(...a),
     fetchLibraryLorebooks: vi.fn(),
     exportLorebookToLibrary: vi.fn(),
     importLorebook: vi.fn(),
@@ -116,7 +118,17 @@ async function mountWorldView() {
           props: ['label', 'value'],
           template: '<div class="el-option" :data-value="value">{{ label }}</div>',
         },
-        ElTabs: { name: 'ElTabs', template: '<div class="el-tabs"><slot /></div>' },
+        ElTabs: {
+          name: 'ElTabs',
+          props: ['modelValue'],
+          emits: ['update:modelValue'],
+          template:
+            '<div class="el-tabs">' +
+            '<button data-testid="tab-entries" @click="$emit(\'update:modelValue\', \'entries\')">entries</button>' +
+            '<button data-testid="tab-map" @click="$emit(\'update:modelValue\', \'map\')">map</button>' +
+            '<button data-testid="tab-preview" @click="$emit(\'update:modelValue\', \'preview\')">preview</button>' +
+            '<slot /></div>',
+        },
         ElTabPane: { name: 'ElTabPane', template: '<div class="el-tab-pane"><slot /></div>' },
         ElCheckbox: true,
       },
@@ -302,6 +314,97 @@ describe('WorldView 条目 tab → 后端设定集', () => {
  *
  * 取值表见 `src/story_engine/lore/categories.py`（后端唯一定义处）。
  */
+describe('WorldView 触发预览', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFetchNovels.mockResolvedValue(NOVELS)
+    mockFetchNovelLorebooks.mockResolvedValue(BOOKS)
+  })
+
+  it('输入文本点预览 → 用选中那本书的 id 调预览接口（不是前端自己算）', async () => {
+    mockPreviewNovelLorebooks.mockResolvedValue({
+      matches: [
+        { book: '天玄大陆', entry_id: 'culti', keys_hit: ['筑基'], priority: 80, content: '境界：筑基→金丹' },
+      ],
+      count: 1,
+      overflow: 0,
+      text_length: 6,
+    })
+    const { wrapper, flushPromises } = await mountWorldView()
+
+    await wrapper.find('[data-testid="tab-preview"]').trigger('click')
+    await wrapper.find('[data-testid="preview-text"]').setValue('他祭出筑基之力')
+    await wrapper.find('[data-testid="preview-run"]').trigger('click')
+    await flushPromises()
+
+    expect(mockPreviewNovelLorebooks).toHaveBeenCalledWith('novel_a', '他祭出筑基之力')
+  })
+
+  it('命中结果要显示"哪条命中、命中了哪个关键词、优先级多少"', async () => {
+    mockPreviewNovelLorebooks.mockResolvedValue({
+      matches: [
+        { book: '天玄大陆', entry_id: 'culti', keys_hit: ['筑基'], priority: 80, content: '境界：筑基→金丹' },
+      ],
+      count: 1,
+      overflow: 0,
+      text_length: 6,
+    })
+    const { wrapper, flushPromises } = await mountWorldView()
+    await wrapper.find('[data-testid="tab-preview"]').trigger('click')
+    await wrapper.find('[data-testid="preview-text"]').setValue('他祭出筑基之力')
+    await wrapper.find('[data-testid="preview-run"]').trigger('click')
+    await flushPromises()
+
+    const item = wrapper.find('[data-testid="preview-item"]')
+    expect(item.text()).toContain('culti')
+    expect(item.text()).toContain('天玄大陆')
+    expect(item.text()).toContain('筑基')
+    expect(item.text()).toContain('P80')
+    expect(item.text()).toContain('境界：筑基→金丹')
+  })
+
+  it('没命中要说清楚是"没命中"，不是一片空白', async () => {
+    mockPreviewNovelLorebooks.mockResolvedValue({ matches: [], count: 0, overflow: 0, text_length: 3 })
+    const { wrapper, flushPromises } = await mountWorldView()
+    await wrapper.find('[data-testid="tab-preview"]').trigger('click')
+    await wrapper.find('[data-testid="preview-text"]').setValue('无关文本')
+    await wrapper.find('[data-testid="preview-run"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('没有条目命中')
+  })
+
+  it('被上限丢掉的条数必须自报（不许静默截断）', async () => {
+    mockPreviewNovelLorebooks.mockResolvedValue({
+      matches: [
+        { book: '天玄大陆', entry_id: 'culti', keys_hit: ['筑基'], priority: 80, content: '境界' },
+      ],
+      count: 1,
+      overflow: 4,
+      text_length: 6,
+    })
+    const { wrapper, flushPromises } = await mountWorldView()
+    await wrapper.find('[data-testid="tab-preview"]').trigger('click')
+    await wrapper.find('[data-testid="preview-text"]').setValue('筑基')
+    await wrapper.find('[data-testid="preview-run"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('4')
+    expect(wrapper.text()).toContain('上限')
+  })
+
+  it('预览失败要报出来（不能静默吞）', async () => {
+    mockPreviewNovelLorebooks.mockRejectedValue(new Error('小说不存在'))
+    const { wrapper, flushPromises } = await mountWorldView()
+    await wrapper.find('[data-testid="tab-preview"]').trigger('click')
+    await wrapper.find('[data-testid="preview-text"]').setValue('筑基')
+    await wrapper.find('[data-testid="preview-run"]').trigger('click')
+    await flushPromises()
+
+    expect(ElMessage.error).toHaveBeenCalled()
+  })
+})
+
 describe('WorldView 条目「类型」', () => {
   beforeEach(() => {
     vi.clearAllMocks()

@@ -195,6 +195,57 @@
           </div>
         </div>
       </el-tab-pane>
+
+      <el-tab-pane label="触发预览" name="preview">
+        <div class="preview-pane">
+          <p class="hint">
+            贴一段文本（比如你正准备写的段落），看会注入<strong>哪些世界观设定</strong>。匹配在后端算 ——
+            与写作时用的是同一个触发引擎、同一条数上限；注意真实写作的触发源是
+            <strong>紧邻的上一章正文</strong>，这里用的是你输入的文本，所以这是"预览"而非定论。
+          </p>
+          <el-input
+            v-model="previewText"
+            type="textarea"
+            :rows="4"
+            data-testid="preview-text"
+            placeholder="粘贴或输入一段文本…"
+          />
+          <div class="preview-actions">
+            <el-button
+              type="primary"
+              :disabled="!novelId"
+              data-testid="preview-run"
+              @click="runPreview"
+            >
+              预览
+            </el-button>
+            <span v-if="previewRan" class="hint small">命中 {{ previewResult.count }} 条</span>
+          </div>
+
+          <p v-if="previewNotice" class="err" data-testid="preview-notice">{{ previewNotice }}</p>
+          <p v-if="previewRan && previewResult.overflow > 0" class="hint small">
+            ⚠️ 还有 {{ previewResult.overflow }} 条命中了但超过单次注入上限，未列在下边
+          </p>
+          <p v-if="previewRan && previewResult.count === 0" class="hint" data-testid="preview-empty">
+            没有条目命中 —— 这本书的设定里没有关键词出现在这段文本里（也可能是那些条目被停用了）
+          </p>
+
+          <div
+            v-for="m in previewResult.matches"
+            :key="`${m.book}::${m.entry_id}`"
+            class="preview-item"
+            data-testid="preview-item"
+          >
+            <div class="entry-header">
+              <span class="entry-name">{{ m.entry_id }}</span>
+              <el-tag size="small">{{ m.book }}</el-tag>
+              <el-tag v-for="k in m.keys_hit" :key="k" size="small" type="success">{{ k }}</el-tag>
+              <span class="entry-priority">P{{ m.priority }}</span>
+            </div>
+            <div class="entry-content">{{ m.content }}</div>
+          </div>
+        </div>
+      </el-tab-pane>
     </el-tabs>
 
     <!-- 条目编辑弹窗 -->
@@ -286,10 +337,12 @@ import {
   fetchNovelLorebooks,
   fetchNovelMap,
   fetchNovels,
+  previewNovelLorebooks,
   saveNovelMap,
   updateNovelLorebook,
   type ApiLorebook,
   type ApiLorebookEntry,
+  type ApiLorebookPreview,
   type ApiMapMarker,
   type NovelBrief,
 } from '../utils/api'
@@ -642,6 +695,9 @@ watch(novelId, (id) => {
   if (!id) return
   rememberNovel(id)
   resetFilters()
+  // 换书 → 预览结果作废（文本留着方便复用，但结果属于上一本书，不能继续显示）
+  previewRan.value = false
+  previewNotice.value = ''
   books.value = []
   // 地图状态必须随手一起清：否则从 A 书切到 B 书后仍显示 A 的图与标记，
   // 保存时还会把 A 的 image_path 写进 B（跨书污染，评审 P1-1）
@@ -747,6 +803,29 @@ function deleteMarker() {
   markMapDirty()
 }
 
+// ── 触发预览（匹配在后端算：复用装配器同一个 find_matching_entries 与同一个条数上限）──
+const previewText = ref('')
+const previewRan = ref(false)
+const previewNotice = ref('')
+const previewResult = ref<ApiLorebookPreview>({ matches: [], count: 0, overflow: 0, text_length: 0 })
+
+async function runPreview() {
+  if (!novelId.value) {
+    ElMessage.warning('先选一本小说')
+    return
+  }
+  previewNotice.value = ''
+  try {
+    previewResult.value = await previewNovelLorebooks(novelId.value, previewText.value)
+    previewRan.value = true
+  } catch (e: any) {
+    // 失败要报出来（旧的地图代码就是空 catch 吞掉，把"坏了"伪装成"没有数据"）
+    previewRan.value = false
+    previewNotice.value = `预览失败：${errorDetail(e, '未知错误')}`
+    ElMessage.error(previewNotice.value)
+  }
+}
+
 async function loadMapData() {
   if (!novelId.value) return
   const wanted = novelId.value
@@ -822,6 +901,13 @@ async function saveMapData() {
 .world-categories .el-menu { border-right: none; }
 .world-entries { flex: 1; display: flex; flex-direction: column; gap: 12px; }
 .type-filter { display: flex; flex-wrap: wrap; gap: 6px; }
+.preview-pane { display: flex; flex-direction: column; gap: 12px; max-width: 900px; }
+.preview-actions { display: flex; align-items: center; gap: 10px; }
+.preview-item {
+  padding: 12px; background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-light); border-radius: 8px;
+  display: flex; flex-direction: column; gap: 8px;
+}
 .entry-card {
   padding: 14px; background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-light); border-radius: 8px;

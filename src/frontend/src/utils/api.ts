@@ -670,6 +670,38 @@ export async function deleteNovelLorebook(novelId: string, name: string): Promis
   _unwrap(res.data, '删除设定集失败')
 }
 
+/** 一条命中（`POST /novel/{id}/lorebooks/preview` 的返回项） */
+export interface ApiLorebookPreviewMatch {
+  book: string
+  entry_id: string
+  /** 这段文本里**实际命中**的关键词（条目可能有多个关键词，只列出真命中的） */
+  keys_hit: string[]
+  priority: number
+  content: string
+}
+
+export interface ApiLorebookPreview {
+  matches: ApiLorebookPreviewMatch[]
+  count: number
+  /** 命中超过单次注入上限（`LORE_MAX_ENTRIES`）而被丢掉的条数 —— 必须显示出来，不许静默截断 */
+  overflow: number
+  text_length: number
+}
+
+/**
+ * 关键词触发预览。
+ *
+ * **匹配在后端算**（复用装配器同一个 `find_matching_entries` 与同一个上限）——
+ * 前端自己再实现一遍就会出现"预览说会注入、真写时却不注入"的分叉。
+ */
+export async function previewNovelLorebooks(
+  novelId: string,
+  text: string,
+): Promise<ApiLorebookPreview> {
+  const res = await api.post(`/novel/${novelId}/lorebooks/preview`, { text })
+  return _unwrap(res.data, '预览失败')
+}
+
 // ── 世界地图（地图属于某一本书）──────────────────────
 //
 // 注意（N8 修复）：这里必须带 novel_id。旧代码打的是 `/novel/current/map`，

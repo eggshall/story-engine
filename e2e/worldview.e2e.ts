@@ -196,6 +196,20 @@ test('世界观页 · 设定集按书绑定：落盘 → 刷新仍在 → 换书
     'UI 选的「地点」必须被后端一致性校验认成地名',
   ).toBeGreaterThanOrEqual(1)
 
+  // ── 4c. 触发预览（真 HTTP，匹配在后端算）：能命中那条「地点」设定 ──
+  await page.getByRole('tab', { name: '触发预览' }).click()
+  await page.locator('[data-testid="preview-text"]').fill(`${placeKey}的城墙很高`)
+  await page.locator('[data-testid="preview-run"]').click()
+  await expect(page.locator('[data-testid="preview-item"]').first()).toContainText('capital', {
+    timeout: 20_000,
+  })
+  await expect(page.locator('[data-testid="preview-item"]').first()).toContainText(placeKey)
+
+  // 不含任何关键词 → 必须明确说"没命中"，而不是留一片空白
+  await page.locator('[data-testid="preview-text"]').fill('这段文字里没有任何设定关键词')
+  await page.locator('[data-testid="preview-run"]').click()
+  await expect(page.locator('[data-testid="preview-empty"]')).toBeVisible({ timeout: 20_000 })
+
   // ── 5. 换书看不到（按书隔离）──
   await pickNovel(TITLE_B)
   await expect(page.locator('.world-categories')).not.toContainText(BOOK, { timeout: 20_000 })

@@ -98,8 +98,9 @@
       （`/api/novel/{id}/lorebooks` 系列 + 素材库 lore 端点，见 `docs/design/P7-MVP-PLAN.md` §9.1 的 N8 行），
       差的只是前端把它接上去 + 浏览器 E2E。
   - [x] Lorebook 条目列表 + 编辑（**已接后端**，第四切片；镜像/接口见 `docs/design/P7-MVP-PLAN.md` 第四切片）
-  - [ ] 关键词触发预览 (输入文本，高亮匹配关键词) —— **仍未做**；后端触发引擎已是纯函数
-        （`lore/lorebook.py::find_matching_entries`），缺的只是一个预览入口
+  - [x] 关键词触发预览 (输入文本，看会注入哪些设定) —— **第五切片补上**：后端
+        `POST /api/novel/{id}/lorebooks/preview` 复用装配器同一个 `find_matching_entries`
+        与同一条数上限（超上限的条数**如实自报**）；前端世界观页新增「触发预览」tab
   - [x] 分类筛选 —— 第四切片改成按**设定集**过滤（原写死的六个分类退役）；
         第五切片补上条目**「类型」**（地点/物品/规则/势力/世界观/其他，走磁盘已有字段 `category`）
         + 按类型过滤；取值唯一定义处 `lore/categories.py`

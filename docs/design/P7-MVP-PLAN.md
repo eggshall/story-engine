@@ -377,6 +377,16 @@ vite build ✓ · 浏览器 E2E **7 passed**（n0×4 / n2 / n6 / worldview）
 门禁：pytest **1012 passed / 3 skipped**（94.49%，mypy 69 文件）· vitest **121 / 15 files** ·
 vue-tsc 0 · build ✓ · 浏览器 E2E **7 passed**。
 
+**第五切片之二：关键词触发预览（2026-10-12）**
+
+原计划里这条一直挂着"未做"，理由是"后端触发引擎已是纯函数，缺的只是一个预览入口"。
+落地时唯一要守的纪律：**匹配必须在后端算**，复用装配器同一个
+`lore/lorebook.py::find_matching_entries` 与同一个 `LORE_MAX_ENTRIES` 上限 ——
+前端自己再实现一遍就是评审反复点名的"两处定义"，必然演变成"预览说会注入、真写却不注入"。
+两个必须**如实**的地方：① 超上限被丢掉的条数要自报（与装配器 `lore:overflow` 同口径）；
+② 界面上写清"真实写作的触发源是**紧邻的上一章正文**"，所以这只是预览、不是定论。
+接口 `POST /api/novel/{id}/lorebooks/preview`；前端世界观页新增「触发预览」tab。
+
 ### 9.1.1 N9 设计要点 —— 伏笔账本 + 注入 + 校验（最小版）
 
 > 动机来源：同类产品的对照结论（`~/wiki/comparisons/product-novel-tools-setting-modules.md`）——
