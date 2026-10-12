@@ -27,7 +27,13 @@ import logging
 from fastapi import APIRouter
 
 from story_engine.api.schemas import ApiResponse, CheckChapterRequest, CheckReportPayload
-from story_engine.check.rules import build_baseline, run_rules
+from story_engine.check.rules import (
+    DEFAULT_RULES,
+    THREAD_RULES,
+    ThreadContext,
+    build_baseline,
+    run_rules,
+)
 from story_engine.writer.manifest_store import load_manifest
 
 logger = logging.getLogger("story_engine.api")
@@ -121,6 +127,33 @@ def _profile_features(profile_id: str) -> dict:
     return {}
 
 
+def _load_thread_context(novel_id: str, chapter_number: int | None) -> ThreadContext | None:
+    """读这本书的伏笔账本；**没有账本返回 None**（调用方据此不跑伏笔规则）。
+
+    为什么是 None 而不是"空 ThreadContext"（N9 的取舍）：账本为空时若照跑那两条规则，
+    每本还没用过账本的旧书都会在报告里凭空多出两条 `skipped` 规则，改变 N5 既定的响应形状。
+    取最小影响：**没账本 → 这两条规则不参与**，既有 5 条规则的行为一字不变。
+    """
+    if not novel_id:
+        return None
+    from story_engine.tools.novel_storage import load_novel
+
+    novel = load_novel(novel_id)
+    if novel is None:
+        return None
+    threads = getattr(novel, "threads", None) or {}
+    if not threads:
+        return None
+    chapters = getattr(novel, "chapters", []) or []
+    return ThreadContext(
+        threads=threads,
+        # 缺省/0 一律规范成 None（评审 P2-8）：否则 `planted_chapter > 0` 会把条目
+        # 全判成"还没埋到"，悬空规则给出 `ok` —— 而它的本意是"缺章号就不判"
+        chapter_number=chapter_number or None,
+        known_chapters=sorted(c.chapter_number for c in chapters),
+    )
+
+
 @router.post("/chapter")
 def check_chapter(req: CheckChapterRequest) -> ApiResponse:
     """校验一章（或一段）正文，返回级别 + 定位 + 建议。
@@ -157,7 +190,13 @@ def check_chapter(req: CheckChapterRequest) -> ApiResponse:
     profile_features = _profile_features(req.profile_id)
     baseline = build_baseline(profile_features, previous_texts[-limit:] if previous_texts else [])
 
-    report = run_rules(text, baseline)
+    # 伏笔账本规则（N9）：有账本才加进来（见 _load_thread_context 的取舍说明）
+    rules: list[str] = list(DEFAULT_RULES)
+    thread_context = _load_thread_context(req.novel_id, req.chapter_number)
+    if thread_context is not None:
+        rules += list(THREAD_RULES)
+
+    report = run_rules(text, baseline, rules=rules, thread_context=thread_context)
     # 用 schema 过一遍：字段漂移会在这里炸掉，而不是让前端拿到 undefined
     payload = CheckReportPayload.model_validate(report.to_dict())
 

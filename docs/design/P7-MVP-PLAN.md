@@ -271,11 +271,27 @@
 | `strength` | 1–5，越大表示此刻越该让读者感觉到 |
 | `note` | 计划怎么回收 / 回收什么 |
 
-**⚠️ 陷阱（必须遵守，与 N8 的同源）**：`novel_storage._write_files` 每次保存都会
-**先清空再重建** `characters/`、`lore/` 镜像目录。新增 `threads/` 镜像**必须同时加进
-`_write_files` 的重建列表**，否则绕过模型直接写镜像文件后，会在下一次保存章节时被整目录清空。
-回归用例仿照 `test_card_survives_chapter_save`。
-（另：PLAN 原文拼写为 `payed_off`，实现时统一为 `paid_off` 并同步改 PLAN 该行。）
+> **本期仅展示 / 待用（评审 P2-7，别假装已生效）**：
+> `strength` 目前**不参与**注入排序与校验，纯粹是给前端面板展示"强度"用的字段；
+> `ThreadContext.dangle_threshold` 虽然可传，但**没有 API / config 入口**
+> （`api/routes/check.py` 从不赋值），实际只能用默认 30。两者都标记为待用，
+> 而不是写成"可配"。
+
+**⚠️ 陷阱（必须遵守，与 N8 的同源）**：`novel_storage._write_files` 每次保存会按模型里的字典
+**先清空再重建**镜像目录。实现后核对过真实行为（原文写得不准确，此处按代码更正）：
+
+| 镜像目录 | 实际行为 |
+|---|---|
+| `chapters/` | 先 unlink 所有 `*.json` 再写 |
+| `characters/` | 先 unlink 所有 `*.json` 再写 |
+| `lore/` | **只写，不清空**（历史实现差异，未做统一） |
+| `threads/`（N9 新增） | 采用与 `characters/` **一致**的「先清空再重建」—— 这样删掉的伏笔不会在目录里留残影 |
+
+因此伏笔**必须经 `threads.manager`（load → 改模型 → save）写入**，不能直接写这个目录，
+否则下一次保存章节时会被整目录清空。回归用例：
+`tests/test_threads/test_threads_survive_save.py::test_thread_mirror_survives_chapter_save`
+（端到端那半条在 `tests/e2e/test_n9_threads_real_http.py::test_thread_survives_real_generation`）。
+（另：PLAN 原文拼写为 `payed_off`，**实现时统一为 `paid_off`**；阶段 Ⅲ 那一行待同步改。）
 
 #### 注入（本期是**规则过滤**，不是检索）
 
@@ -286,7 +302,8 @@ Slot("threads", priority=SUMMARIES, provider="threads", renderer="bullets", max_
 - 排位放在 `beat` 之后、`recap` 之前：伏笔回答的是「本章该推进什么」，与节拍同级紧邻
 - 优先级取 `SUMMARIES` 同级（**可被裁**）而非 `PINNED`：账本属"记忆"类，不是硬约束
 - 过滤规则：`status ∈ {planted, developed}` 且 `planted_chapter ≤ 本章章号`
-- 超 `max_tokens`：按「距上次推进的章数」降序截断，**并在 `ContextPiece.truncated` 自报**
+- 超 `max_tokens`：按「本章 − **埋设**章」降序截断（模型里没有"上次推进章"字段，
+  原设计写"按距上次推进的章数"是笔误，**评审 P2-6** 已更正），**并在 `ContextPiece.truncated` 自报**
 - provider 契约照旧：读不到 → 返回 `[]` → 进 `manifest.skipped`
 - `source` 命名沿用既有风格：`thread:<id>`
 
@@ -313,9 +330,52 @@ Slot("threads", priority=SUMMARIES, provider="threads", renderer="bullets", max_
 
 1. 账本 CRUD 通过；`novel.json` 与 `threads/` 镜像一致，且**保存章节后镜像不被清空**
 2. 生成时未回收伏笔进入注入清单（`GET /api/check/manifest` 可见 `source="thread:<id>"`）
-3. 无账本时槽位进 `skipped`，校验返回 `skipped`（**不告警**）
+3. 无账本时：注入侧槽位进 `skipped`（`empty`）；**校验侧伏笔规则不参与**，
+   报告形状与 N5 完全一致（不告警、也不新增规则条目）—— **评审 P1-2** 把验收文字与实现对齐，
+   不再写"校验返回 skipped"（实现取的是"没账本就不跑"，见上文两处修正的说明）
 4. 悬空伏笔 / 回收章不存在能被校验报出
 5. E2E 判定：改了文件落盘与 HTTP 接口 → **必须有真实 HTTP E2E**；校验规则本身用单测即可
+
+#### N9 实施记录（2026-10-12）
+
+已完成 ①②③④（RED → GREEN → REFACTOR → E2E），门禁全绿：
+
+| 门禁 | 结果 |
+|---|---|
+| `pytest -q` | **912 passed / 3 skipped**，覆盖率 94.34%（门禁 75%） |
+| `ruff check src/story_engine tests` | All checks passed |
+| `mypy src/story_engine` | Success（65 源文件） |
+| `vitest run` / `vue-tsc --noEmit` | 104 passed / 0 |
+
+落地文件：`core/models.py`（`PlotThread` + `Novel.threads`）、
+`threads/manager.py`（新增包，CRUD + `advance_thread` + `select_open_threads`）、
+`tools/novel_storage.py`（子目录 + 镜像）、`writer/context_sources.py`（槽位 + provider）、
+`check/rules.py`（`ThreadContext` + 2 条规则 + `THREAD_RULES`）、
+`api/routes/threads.py`（新增，5 个端点 + 注册进 `main.py`）、
+`api/routes/check.py`（有账本才追加伏笔规则）。
+
+**实现中相对设计的两处修正（都已写回本文档）**：
+1. 镜像目录行为按代码更正（`lore/` 只写不清空；`threads/` 与 `characters/` 一致先清空）；
+2. **校验接口只在「有账本」时追加伏笔规则**（而非总是跑、无账本记 `skipped`）。
+   理由：后者会让每本还没用过账本的旧书报告里凭空多出两条 `skipped` 规则，
+   改变 N5 既定响应形状 —— 取最小影响。已用 E2E 钉死该不变量
+   （`test_book_without_ledger_keeps_legacy_report_shape`）。
+
+**本节点未做（按"最小化改动"显式延后，不是遗漏）**：
+- **前端只读面板**（写作页展示「未回收伏笔」清单）—— 后端契约已就绪，作者当前可用
+  文件/接口维护；面板作为独立增量，避免本节点把前后端一起改动而难以评审
+
+#### N9 评审结论（⑤⑥，2026-10-12）
+
+评审报告归档：`docs/design/reviews/N9-REVIEW.md`（`opencode run --agent requirements`，只读）。
+
+- **无 P0**；结论原文为「需修复后提交」
+- **2 个 P1 + 9 个 P2 已全部处置**（逐条处置表见归档报告末节）：
+  - P1-1 `PUT` 改 id 会静默覆盖另一条伏笔（真实数据丢失路径）→ 目标 id 已存在即失败 + 2 条回归
+  - P1-2 验收 3 文字与实现对齐（校验侧「不参与」而非"返回 skipped"）
+  - P2-1 camelCase 文档承诺未落地（驼峰字段被静默丢成 0）→ `APIModel` + `extra="forbid"` + 4 条测试
+  - 其余：误报修正、老书兼容回归、manifest 端点 E2E、抽公共筛选函数、文档更正、弱断言改行为断言
+- 修复后门禁：**921 passed / 3 skipped**（覆盖率 94.36%）· ruff / mypy / vitest / vue-tsc 全绿
 
 ### 9.2 每个节点的固定流程（测试先行，缺一步不算完成）
 

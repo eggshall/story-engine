@@ -120,6 +120,32 @@ class Chapter(BaseModel):
     word_count: int = 0
 
 
+class PlotThread(BaseModel):
+    """伏笔 / 线索（N9）—— 埋设 → 推进 → 回收/放弃。
+
+    「一本书写个三五年，伏笔就记不起来了」是网文作者的真实痛点（阅文产品需求原话），
+    同类产品都把它当一等公民模块。此前的实现里伏笔只隐含在 `lore` 的关键词触发里，
+    装不下「埋设章 → 回收章」的状态机。
+
+    字段命名对齐马良写作的悬念卡三段式（埋设/强化/回收）+ 双向章节指针。
+    `id` 是稳定标识：条目创建后不再改（改 id = 新建条目）。
+    """
+
+    id: str = Field(description="稳定标识（创建后不改）")
+    title: str = Field(default="", description="一眼能看懂的短句，别只写「神秘老者」")
+    status: str = Field(
+        default="planted",
+        pattern=r"^(planted|developed|paid_off|abandoned)$",
+        description="planted 已埋设 / developed 已推进 / paid_off 已回收 / abandoned 已放弃",
+    )
+    planted_chapter: int = Field(default=0, ge=0, description="埋设章号")
+    payoff_chapter: Optional[int] = Field(
+        default=None, ge=0, description="回收章号（未回收为 None；改章节顺序时最易失效）"
+    )
+    strength: int = Field(default=3, ge=1, le=5, description="强度 1–5：越大表示此刻越该让读者感觉到")
+    note: str = Field(default="", description="计划怎么回收 / 回收什么")
+
+
 class Novel(BaseModel):
     """整本小说"""
     title: str
@@ -128,6 +154,9 @@ class Novel(BaseModel):
     synopsis: str = ""
     characters: Dict[str, CharacterCard] = Field(default_factory=dict)
     lorebooks: Dict[str, LoreBook] = Field(default_factory=dict)
+    threads: Dict[str, PlotThread] = Field(
+        default_factory=dict, description="伏笔账本（key 为 PlotThread.id）"
+    )
     chapters: List[Chapter] = Field(default_factory=list)
     created: str = Field(default_factory=lambda: datetime.now().isoformat())
     updated: str = Field(default_factory=lambda: datetime.now().isoformat())

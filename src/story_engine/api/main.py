@@ -22,6 +22,7 @@ from story_engine.api.routes import (
     research,
     style,
     system,
+    threads,
 )
 from story_engine.core.config import get_config
 
@@ -118,6 +119,7 @@ app.include_router(system.router)
 app.include_router(style.router)
 app.include_router(check.router)
 app.include_router(characters.router)
+app.include_router(threads.router)
 
 
 @app.get("/")

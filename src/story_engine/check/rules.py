@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 from story_engine.polish import HOOK_KEYWORDS, SOFT_PATTERNS, SUSPENSE_PATTERNS
 from story_engine.style import metrics
 from story_engine.style.drift import DEFAULT_TOLERANCES
+from story_engine.threads.manager import OPEN_STATUSES
 
 logger = logging.getLogger("story_engine.check")
 
@@ -34,6 +35,7 @@ PARAGRAPH_MAX_CHARS = 300       # 单段上限：与写作提示词"每段不超
 DIALOGUE_TOLERANCE_PP = float(DEFAULT_TOLERANCES["dialogue_ratio"][1])
 SOFT_FLAVOR_MIN_HITS = 3        # 软性 AI 味词出现次数达到多少才提示
 POV_MIN_MARKERS = 2             # 段落里人称标记少于这个数就不判视角（避免短句误伤）
+THREAD_DANGLE_THRESHOLD = 30    # 伏笔埋了这么多章还没回收 → 提示（可被 ThreadContext 覆盖）
 
 # 真正算"AI 腔"的套话（**不用** polish.AI_PATTERNS：那是给 DeAIFilter.clean 的替换表，
 # 里面含"然而，/但是，/在…的…下"这类正常中文，原样当硬告警会把好文字全标红 —— N5 评审 P0-2）
@@ -150,6 +152,21 @@ class Baseline:
     @property
     def has_dialogue(self) -> bool:
         return self.dialogue_ratio is not None
+
+
+@dataclass
+class ThreadContext:
+    """伏笔账本上下文（N9）—— 与 `Baseline` 同一思路：**没有就不判，而不是猜**。
+
+    文本规则只看 `text` 就够，但「悬空伏笔」「回收章不存在」这两条要账本本身才能判。
+    所以它们不进 `DEFAULT_RULES`，只有调用方（`/api/check/chapter` 拿到 `novel_id` 时）
+    显式传 `thread_context` 才跑 —— 这样既不改变既有 5 条规则的行为，也不会在缺账本时误报。
+    """
+
+    threads: Mapping[str, Any] = field(default_factory=dict)   # id -> PlotThread
+    chapter_number: Optional[int] = None
+    known_chapters: Sequence[int] = ()
+    dangle_threshold: int = THREAD_DANGLE_THRESHOLD
 
 
 def _profile_dialogue_ratio(profile_features: Optional[Mapping[str, Any]]) -> Optional[float]:
@@ -436,15 +453,162 @@ def check_ai_flavor(text: str) -> List[Finding]:
     return findings
 
 
+# ── 伏笔账本规则（N9，需要 ThreadContext 才跑）─────────────
+
+def check_dangling_threads(
+    threads: Optional[Mapping[str, Any]],
+    chapter_number: Optional[int] = None,
+    threshold: int = THREAD_DANGLE_THRESHOLD,
+) -> List[Finding]:
+    """R6 悬空伏笔：埋了太久没回收，读者早忘了 —— 网文作者的真实痛点。
+
+    没有账本 / 没有章号 → `skipped`（说明原因），不拿拍脑袋的阈值误报。
+    `alert` 表示「远超阈值，该处理了」，`warn` 表示「该留意」。
+    """
+    ledger = dict(threads or {})
+    if not ledger:
+        return [
+            Finding(
+                rule_id="dangling_threads",
+                rule_name="悬空伏笔",
+                level="skipped",
+                suggestion="本书还没有伏笔账本 → 本次不判悬空（先建账本，校验才有依据）",
+            )
+        ]
+    if chapter_number is None:
+        return [
+            Finding(
+                rule_id="dangling_threads",
+                rule_name="悬空伏笔",
+                level="skipped",
+                suggestion="缺少当前章号 → 无法判断伏笔悬了多久",
+            )
+        ]
+
+    dangling: List[tuple[int, Any]] = []
+    for t in ledger.values():
+        if getattr(t, "status", "") not in OPEN_STATUSES:
+            continue                      # 已回收 / 已放弃不算悬空
+        planted = getattr(t, "planted_chapter", 0) or 0
+        if planted > chapter_number:
+            continue                      # 本章还没埋到它
+        gap = chapter_number - planted
+        if gap > threshold:
+            dangling.append((gap, t))
+
+    if not dangling:
+        return [
+            Finding(rule_id="dangling_threads", rule_name="悬空伏笔", level="ok", suggestion="")
+        ]
+
+    dangling.sort(key=lambda item: (-item[0], getattr(item[1], "id", "")))
+    gap, worst = dangling[0]
+    level = "alert" if gap > threshold * 2 else "warn"
+    title = getattr(worst, "title", "") or getattr(worst, "id", "")
+    return [
+        Finding(
+            rule_id="dangling_threads",
+            rule_name="悬空伏笔",
+            level=level,
+            suggestion=(
+                f"「{title}」埋于第 {worst.planted_chapter} 章，已 {gap} 章没回收"
+                f"（阈值 {threshold}）：要么安排回收，要么标记为 abandoned"
+            ),
+            details={
+                "count": len(dangling),
+                "threshold": threshold,
+                "thread_ids": [getattr(t, "id", "") for _g, t in dangling],
+            },
+        )
+    ]
+
+
+def check_unknown_payoff(
+    threads: Optional[Mapping[str, Any]],
+    known_chapters: Sequence[int] = (),
+) -> List[Finding]:
+    """R7 回收章不存在：改章节顺序后，`payoff_chapter` 指向的章可能已经没了。
+
+    这是位置信息的典型失效模式（马良写作把「埋设章节 ID / 回收章节 ID」列为
+    「千万别偷懒不填」的字段，也正是最容易随改章号失效的字段）。
+
+    **只判 `status == "paid_off"` 的条目**（评审 P2-2）：作者常按「计划」提前把回收章填成
+    一个还没写到的未来章号（`status=planted`），那不是错误；只有「声称已回收、但那一章不存在」
+    才是真问题。账本为空或不知道有哪些章 → `skipped`，不猜。
+    """
+    ledger = dict(threads or {})
+    if not ledger:
+        return [
+            Finding(
+                rule_id="unknown_payoff",
+                rule_name="回收章有效性",
+                level="skipped",
+                suggestion="本书还没有伏笔账本 → 本次不判回收章",
+            )
+        ]
+    chapters = {int(c) for c in (known_chapters or [])}
+    if not chapters:
+        return [
+            Finding(
+                rule_id="unknown_payoff",
+                rule_name="回收章有效性",
+                level="skipped",
+                suggestion="无法确认哪些章已存在（没有章节列表）→ 本次不判回收章",
+            )
+        ]
+
+    bad = [
+        t
+        for t in ledger.values()
+        if getattr(t, "status", "") == "paid_off"
+        and getattr(t, "payoff_chapter", None) is not None
+        and t.payoff_chapter not in chapters
+    ]
+    if not bad:
+        return [
+            Finding(rule_id="unknown_payoff", rule_name="回收章有效性", level="ok", suggestion="")
+        ]
+
+    bad.sort(key=lambda t: getattr(t, "id", ""))
+    worst = bad[0]
+    title = getattr(worst, "title", "") or getattr(worst, "id", "")
+    return [
+        Finding(
+            rule_id="unknown_payoff",
+            rule_name="回收章有效性",
+            level="alert",
+            suggestion=(
+                f"「{title}」的回收章第 {worst.payoff_chapter} 章不存在："
+                "多半是改章节顺序后失效了，请改成实际回收的那一章"
+            ),
+            details={
+                "count": len(bad),
+                "thread_ids": [getattr(t, "id", "") for t in bad],
+                "known_chapters": sorted(chapters),
+            },
+        )
+    ]
+
+
 DEFAULT_RULES = ("chapter_hook", "dialogue_ratio", "paragraph_length", "pov_consistency", "ai_flavor")
+
+# 需要账本上下文的规则：**不进 DEFAULT_RULES**（保持既有 5 条的行为完全不变）
+THREAD_RULES = ("dangling_threads", "unknown_payoff")
 
 
 def run_rules(
     text: str,
     baseline: Optional[Baseline] = None,
     rules: Sequence[str] = DEFAULT_RULES,
+    *,
+    thread_context: Optional[ThreadContext] = None,
 ) -> CheckReport:
-    """跑一组 A 类规则（确定性：同输入同报告）。"""
+    """跑一组 A 类规则（确定性：同输入同报告）。
+
+    `thread_context`（N9）：伏笔账本类规则（`THREAD_RULES`）需要它。
+    不传时这两条规则返回 `skipped`（进 `skipped_rules` / `incomplete`），
+    **不会**变成 alert —— 「没依据就不判」是 N5 定下的铁律。
+    """
     baseline = baseline or Baseline()
     findings: List[Finding] = []
     for rule in rules:
@@ -458,8 +622,18 @@ def run_rules(
             findings.append(check_pov_consistency(text))
         elif rule == "ai_flavor":
             findings.extend(check_ai_flavor(text))
+        elif rule == "dangling_threads":
+            ctx = thread_context or ThreadContext()
+            findings.extend(
+                check_dangling_threads(ctx.threads, ctx.chapter_number, ctx.dangle_threshold)
+            )
+        elif rule == "unknown_payoff":
+            ctx = thread_context or ThreadContext()
+            findings.extend(check_unknown_payoff(ctx.threads, ctx.known_chapters))
         else:
-            raise ValueError(f"未知校验规则: {rule!r}（可用: {list(DEFAULT_RULES)}）")
+            raise ValueError(
+                f"未知校验规则: {rule!r}（可用: {list(DEFAULT_RULES) + list(THREAD_RULES)}）"
+            )
 
     return CheckReport(
         findings=findings,

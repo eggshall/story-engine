@@ -268,7 +268,7 @@ def save_novel(novel: Novel, novel_id: str = "") -> str:
             real_dir.mkdir(parents=True, exist_ok=True)
 
     # 创建子目录
-    for sub in ("chapters", "lore", "characters", "research", "uploads",
+    for sub in ("chapters", "lore", "characters", "threads", "research", "uploads",
                 "style_profiles", "exports"):
         (real_dir / sub).mkdir(exist_ok=True)
 
@@ -313,6 +313,18 @@ def _write_files(base: Path, data: dict) -> None:
         _atomic_write(
             _safe_json_path(base / "lore", lbname),
             json.dumps(lbdata, ensure_ascii=False, indent=2),
+        )
+
+    # 伏笔账本镜像（N9）：真源是 novel.json 的 `threads`，与 characters 一样**先清空再重建**。
+    # 所以伏笔必须经 `threads.manager`（load → 改模型 → save）写入，不能直接写这个目录 ——
+    # 否则下一次保存章节时会被整目录清空（回归用例 test_thread_mirror_survives_chapter_save）。
+    th_dir = base / "threads"
+    for f in th_dir.glob("*.json"):
+        f.unlink()
+    for tid, tdata in data.get("threads", {}).items():
+        _atomic_write(
+            _safe_json_path(th_dir, tid),
+            json.dumps(tdata, ensure_ascii=False, indent=2),
         )
 
     # 主文件

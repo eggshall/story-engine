@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from story_engine.core.models import Novel
+from story_engine.threads.manager import open_threads_of
 from story_engine.tools.novel_storage import _novel_dir
 from story_engine.writer.context_builder import (
     CHAPTER_TAIL,
@@ -34,6 +35,9 @@ DEFAULT_BUDGET_TOKENS = 40_000
 
 # 上一章结尾取多少字（计划书 2.1：上一章结尾 2000 字）
 CHAPTER_TAIL_CHARS = 2000
+
+# 伏笔账本槽位预算（N9）：账本是"记忆"类，可被全局预算裁，所以给一个明确上限
+THREADS_MAX_TOKENS = 1200
 
 
 def _read_text(path: Path) -> str:
@@ -56,6 +60,10 @@ def default_slots() -> List[Slot]:
         Slot("mainline", priority=PINNED, provider="mainline", renderer="plain", max_tokens=1500),
         Slot("style", priority=PINNED, provider="style", renderer="plain", max_tokens=1500),
         Slot("beat", priority=PINNED, provider="beat", renderer="plain", max_tokens=2000),
+        # 伏笔账本（N9）：回答的是「本章该推进什么」，与节拍同级紧邻。
+        # 优先级取 SUMMARIES（可被裁）而非 PINNED —— 账本属"记忆"类，不是硬约束。
+        Slot("threads", priority=SUMMARIES, provider="threads", renderer="bullets",
+             max_tokens=THREADS_MAX_TOKENS),
         Slot("recap", priority=SUMMARIES, provider="recap", renderer="bullets", max_tokens=3000),
         Slot("chapter_tail", priority=CHAPTER_TAIL, provider="chapter_tail", renderer="plain",
              # 槽位预算的口径是"字符"（estimate_tokens 按字符计），与 provider 的截断字数一致
@@ -164,6 +172,30 @@ def _style_provider(style_block: str) -> Callable[[Mapping[str, Any]], List[Cont
     return _p
 
 
+def _threads_provider(
+    novel: Novel, chapter_number: int
+) -> Callable[[Mapping[str, Any]], List[ContextPiece]]:
+    """本章该带上的伏笔（N9）—— **规则过滤**，不是检索（§9.1.1 的非目标）。
+
+    筛选与排序**直接复用 `threads.manager.open_threads_of`**，不在这里重抄一遍口径
+    （评审 P2-5：provider 与 manager 各写一套过滤，只共享状态常量，迟早漂移）。
+    读不到账本 → 返回 `[]` → 装配器记进 `manifest.skipped: empty`（"没注成"必须可见）。
+    """
+
+    def _p(_inputs: Mapping[str, Any]) -> List[ContextPiece]:
+        pieces: List[ContextPiece] = []
+        for t in open_threads_of(novel, chapter_number):
+            gap = chapter_number - (t.planted_chapter or 0)
+            line = f"{t.title or t.id}（{t.status}｜埋于第 {t.planted_chapter} 章，已 {gap} 章未回收"
+            if getattr(t, "note", ""):
+                line += f"｜计划：{t.note}"
+            line += "）"
+            pieces.append(ContextPiece(text=line, source=f"thread:{t.id}"))
+        return pieces
+
+    return _p
+
+
 # ── 组装 ─────────────────────────────────────────────────
 
 def build_providers(
@@ -184,6 +216,7 @@ def build_providers(
         "recap": _recap_provider(novel_id, recap_text),
         "chapter_tail": _chapter_tail_provider(getattr(novel, "chapters", []) or [], chapter_number),
         "characters": _characters_provider(getattr(novel, "characters", {}) or {}),
+        "threads": _threads_provider(novel, chapter_number),
     }
 
 

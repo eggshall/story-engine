@@ -321,7 +321,7 @@ story-engine/
   「model 为真源 / 目录文件为 human-readable 镜像」约定；字段 `id/title/status/planted_chapter/payoff_chapter/strength/note`
 - [ ] 装配器挂 `threads` provider + 一条槽位（走既有 `extra_providers` 口子，**不改 `build_novel_builder` 签名**）
 - [ ] 注入规则（最小版，非检索）: 只注入 `status ∈ {planted, developed}` 且 `planted_chapter ≤ 本章` 的伏笔；
-  超预算按「距上次推进的章数」降序截断并标 `truncated`
+  超预算按「本章 − **埋设**章」降序截断并标 `truncated`
 - [ ] A 类校验 2 条（确定性、不调模型）: `dangling_threads`（悬空伏笔）/ `unknown_payoff`（回收章不存在）；
   **无账本时返回 skipped 而不是猜**（遵守 N5 铁律）
 - [ ] 最小 API: `GET/POST/PUT/DELETE /api/novel/{id}/threads`（复用 `APIModel` camelCase 兼容）

@@ -240,10 +240,15 @@ class TestDefaultSlotsAndBuilder:
         assert slots["recap"].priority == SUMMARIES
         assert slots["chapter_tail"].priority == CHAPTER_TAIL
         assert slots["characters"].priority == CHARACTERS
-        # 顺序 = 进 prompt 的顺序（主线→文风→节拍→前情→结尾→角色）
+        # 顺序 = 进 prompt 的顺序（主线→文风→节拍→伏笔→前情→结尾→角色）
+        # ⚠️ 这里冻结了完整槽位表：**新增槽位时必须同步改这一行**（是有意的契约变更，
+        #    不是意外——N9 加 threads 槽位时更新过一次）。只加槽位不加断言会让 prompt
+        #    顺序漂移而无人发现，所以保留快照 + 旁加不变式（见下）。
         assert [s.slot_id for s in cs.default_slots()] == [
-            "mainline", "style", "beat", "recap", "chapter_tail", "characters"
+            "mainline", "style", "beat", "threads", "recap", "chapter_tail", "characters"
         ]
+        # 不变式：伏笔是"记忆"类，不许被提成 PINNED（提了就会挤掉风格块/节拍）
+        assert slots["threads"].priority > PINNED
 
     def test_builder_assembles_from_files_with_manifest(self, novels_root: Path):
         d = novels_root / "n2"
