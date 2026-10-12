@@ -10,17 +10,19 @@ from story_engine.cli import cli, main
 
 @pytest.fixture(autouse=True)
 def _isolated_env(monkeypatch, tmp_path):
-    """隔离数据目录：设定集写临时目录；角色卡 N8 起属于小说 → 隔离小说根并建一本测试书。"""
+    """隔离数据目录：角色卡与设定集 N8 起都属于小说 → 隔离小说根并建一本测试书。
+
+    注意：不再 patch `lore.lorebook.LOREB_DIR` —— 那个全局目录已在 N8 退役
+    （世界观按小说绑定），继续 patch 只会在 fixture 阶段就 `AttributeError`，
+    让整个 `test_cli.py` 的用例全部 error（本节点踩过）。
+    """
     import story_engine.core.config as cfg_mod
-    import story_engine.lore.lorebook as lore_mod
 
     data_dir = tmp_path / "data"
     cfg_dir = tmp_path / "config"
     data_dir.mkdir(parents=True, exist_ok=True)
     cfg_dir.mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setattr(lore_mod, "LOREB_DIR", data_dir / "lore")
-    # N8：角色卡按小说绑定（不再有全局 data/characters/）
     monkeypatch.setattr("story_engine.tools.novel_storage.NOVELS_ROOT", data_dir / "novels")
     from story_engine.core.models import Novel
     from story_engine.tools.novel_storage import save_novel
@@ -186,6 +188,47 @@ class TestLoreCommands:
         result = runner.invoke(cli, ["lore", "match", "筑基境界"])
         assert result.exit_code == 0
         assert "世界观设定" in result.output
+
+    def test_two_novels_require_explicit_novel_flag(self, runner):
+        """N8 新增行为：有两本书时**必须显式 `--novel`**。
+
+        不显式指定就报错，而不是"随便挑一本" —— 静默挑错书等于把设定集写到别的书上。
+        """
+        from story_engine.core.models import Novel
+        from story_engine.tools.novel_storage import save_novel
+
+        save_novel(Novel(title="第二本"), "novel_second")
+
+        result = runner.invoke(cli, ["lore", "list"])
+
+        assert result.exit_code != 0
+        assert "--novel" in result.output
+
+    def test_books_are_isolated(self, runner):
+        """设定集按书隔离的 CLI 侧断言：写到 A 书的不该出现在 B 书。"""
+        from story_engine.core.models import Novel
+        from story_engine.tools.novel_storage import save_novel
+
+        save_novel(Novel(title="第二本"), "novel_second")
+        runner.invoke(cli, ["lore", "example", "--novel", "novel_cli_test"])
+
+        other = runner.invoke(cli, ["lore", "list", "--novel", "novel_second"])
+
+        assert other.exit_code == 0
+        assert "天玄大陆" not in other.output
+
+    def test_missing_novel_is_a_readable_error(self, runner):
+        """`--novel` 指向不存在的书 → 可读报错，不是裸堆栈（N8 评审 P2-4）。
+
+        原来显式 id 不做校验，`NovelNotFound` 从 `lore.lorebook._require_novel` 一路
+        冒到 Click，用户看到的是 traceback 而不是「小说不存在」。
+        """
+        result = runner.invoke(cli, ["lore", "list", "--novel", "打错的名字"])
+
+        assert result.exit_code != 0
+        assert "小说不存在" in result.output
+        assert "打错的名字" in result.output
+        assert "Traceback" not in result.output
 
 
 class TestPolishCommands:

@@ -11,6 +11,7 @@ from story_engine.core.models import Chapter, ChapterOutline, CharacterCard, Nov
 from story_engine.llm.base import TASK_GENERATE, LLMRequest
 from story_engine.llm.router import ModelRouter
 from story_engine.lore.lorebook import build_lore_context
+from story_engine.writer.context_sources import previous_chapter_text
 
 # 默认写作提示词模板
 DEFAULT_SYSTEM_PROMPT = """你是一位专业的网络小说作家，擅长写引人入胜的故事。
@@ -117,7 +118,7 @@ class WritingEngine:
             title=novel.title,
             chapter_num=chapter_num,
             character_context=self._build_character_context(novel.characters),
-            world_context=self._build_world_context(),
+            world_context=self._build_world_context(chapter_num),
             synopsis=novel.synopsis,
             previous_summary=self._build_previous_summary(novel.chapters),
         )
@@ -163,15 +164,20 @@ class WritingEngine:
             word_estimate=data.get("word_estimate", 2000),
         )
 
-    def _build_world_context(self) -> str:
-        """从当前文本中构建世界观上下文"""
+    def _build_world_context(self, chapter_number: int) -> str:
+        """世界观上下文 —— 只用**本书**的设定集（N8）。
+
+        改之前是 `build_lore_context(recent_text)`，读的是全局 `data/lore/`：
+        所有书共用一副设定集，A 书的修仙设定会注入到 B 书的都市故事里。
+
+        `chapter_number` **必填、没有默认值**：触发源是"紧邻上一章"，给个隐式默认值只会让
+        调用方静默拿到空上下文（本项目最忌讳的失败方式）；显式传参还能让 mypy 把所有调用点
+        揪出来，不会漏改。
+        """
         if not self.current_novel:
             return ""
-        # 取最新一章内容用于关键词触发
-        recent_text = ""
-        if self.current_novel.chapters:
-            recent_text = self.current_novel.chapters[-1].content
-        return build_lore_context(recent_text)
+        recent_text = previous_chapter_text(self.current_novel.chapters, chapter_number)
+        return build_lore_context(self.current_novel.lorebooks, recent_text)
 
     async def write_chapter(
         self,
@@ -183,7 +189,7 @@ class WritingEngine:
             raise RuntimeError("请先加载小说")
 
         novel = self.current_novel
-        world_context = self._build_world_context()
+        world_context = self._build_world_context(outline.chapter_number)
         prompt = WRITING_PROMPT.format(
             title=novel.title,
             chapter_num=outline.chapter_number,
@@ -237,7 +243,7 @@ class WritingEngine:
                 title=novel.title,
                 chapter_num=outline.chapter_number,
                 character_context=self._build_character_context(novel.characters),
-                world_context=self._build_world_context(),
+                world_context=self._build_world_context(outline.chapter_number),
                 outline=outline.model_dump_json(indent=2, ensure_ascii=False),
             )
 

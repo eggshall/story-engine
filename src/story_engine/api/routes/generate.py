@@ -169,7 +169,7 @@ async def _stream_chapter(engine, ch_num: int, title: str, model: str, novel: No
 
 {engine._build_character_context(novel_data.characters)}
 
-{engine._build_world_context()}
+{engine._build_world_context(ch_num)}
 
 大纲：
 {outline.model_dump_json(indent=2, ensure_ascii=False)}

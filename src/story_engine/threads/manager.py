@@ -18,8 +18,8 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-# 复用 N8 定义的同一异常类型（同一个类，跨路由的 `except NovelNotFound` 才能通用）
-from story_engine.characters.manager import NovelNotFound  # noqa: F401
+# 复用共享异常类型（同一个类，跨路由的 `except NovelNotFound` 才能通用）
+from story_engine.core.errors import NovelNotFound  # noqa: F401
 from story_engine.core.models import Novel, PlotThread
 from story_engine.tools.novel_storage import load_novel, save_novel
 

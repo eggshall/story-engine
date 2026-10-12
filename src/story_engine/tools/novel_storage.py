@@ -214,6 +214,11 @@ def load_novel(novel_id: str) -> Optional[Novel]:
             if chs:
                 data["chapters"] = chs
         # 从角色目录加载
+        # ⚠️ 非对称是**有意**的（N8 评审 P2-8）：`characters/` 镜像会被回读，`lore/` 不会。
+        #    世界观的唯一真源是 `novel.json` 的 `lorebooks`；回读 `lore/` 镜像会让"已删除的
+        #    设定集"在下次保存前从残影里复活（`_write_files` 只在保存时清空该目录）。
+        #    `lore/` 因此是**只读导出**（给人看/给 diff 用），手改它不会生效 —— CLI 的
+        #    `story lore example` 输出里已把这点写明。
         ch_dir2 = nd / "characters"
         if ch_dir2.exists():
             chars = {}
@@ -308,10 +313,16 @@ def _write_files(base: Path, data: dict) -> None:
             json.dumps(cdata, ensure_ascii=False, indent=2),
         )
 
-    # lore
+    # 世界观设定集（N8）：真源是 novel.json 的 `lorebooks`，镜像目录与 characters/threads
+    # 一样**先清空再重建** —— 否则删掉的设定集会在目录里留残影，作者看到的是"删了还在"。
+    # 对齐说明：N9 期间核过这里当时是"只写不清空"，是三个镜像目录里唯一的例外；
+    # N8 统一成同一语义（回归用例 `test_deleted_lorebook_mirror_is_removed`）。
+    lb_dir = base / "lore"
+    for f in lb_dir.glob("*.json"):
+        f.unlink()
     for lbname, lbdata in data.get("lorebooks", {}).items():
         _atomic_write(
-            _safe_json_path(base / "lore", lbname),
+            _safe_json_path(lb_dir, lbname),
             json.dumps(lbdata, ensure_ascii=False, indent=2),
         )
 

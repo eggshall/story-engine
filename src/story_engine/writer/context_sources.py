@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from story_engine.core.models import Novel
+from story_engine.lore.lorebook import find_matching_entries
 from story_engine.threads.manager import open_threads_of
 from story_engine.tools.novel_storage import _novel_dir
 from story_engine.writer.context_builder import (
@@ -38,6 +39,15 @@ CHAPTER_TAIL_CHARS = 2000
 
 # 伏笔账本槽位预算（N9）：账本是"记忆"类，可被全局预算裁，所以给一个明确上限
 THREADS_MAX_TOKENS = 1200
+
+# 世界观槽位预算（N8）：设定集命中可能很多条，给一个上限并按条截断
+LORE_MAX_TOKENS = 2000
+
+#: 单次注入的设定**条目数**上限。命中超过上限时必须**可见**（§4「没注成必须可见」）：
+#: 早先这里吃 `find_matching_entries` 的默认 10 条，第 11 条起既不进 `entries`，
+#: 也不进 `skipped`/`dropped`，清单与真实注入不一致（N8 评审 P2-2）。现在超出部分
+#: 以 `lore:overflow` 片段自报条数。
+LORE_MAX_ENTRIES = 50
 
 
 def _read_text(path: Path) -> str:
@@ -70,6 +80,13 @@ def default_slots() -> List[Slot]:
              max_tokens=CHAPTER_TAIL_CHARS),
         Slot("characters", priority=CHARACTERS, provider="characters", renderer="plain",
              max_tokens=3000),
+        # 世界观设定集（N8 方案 B）：与角色卡同属"设定"档，排在它后面（设定类相邻）。
+        # 为什么必须进装配器：装配器原先**没有世界观槽位**，走装配器的 v2 路径压根不注入
+        # 设定集 —— 世界观只活在 engine 的 legacy 手拼 prompt 路径上，与「上下文一律经槽位
+        # 装配」的约定相矛盾。优先级取 CHARACTERS（可被裁）而非 PINNED：世界观命中属"资料"，
+        # 不是每次生成都必须的硬约束。
+        Slot("lore", priority=CHARACTERS, provider="lore", renderer="plain",
+             max_tokens=LORE_MAX_TOKENS),
     ]
 
 
@@ -122,21 +139,27 @@ def _chapter_tail_provider(
 
     截断要**自报**（`ContextPiece.truncated`）：否则作者在注入清单里看到 `chars=2000`
     会以为上一章只有 2000 字（评审 P1-3）。
+
+    "上一章"口径与世界观共用 `previous_chapter()`（N8 评审 P2-6）：原来这里写死
+    `chapter_number - 1`，于是章节跳号（缺第 4 章时写第 5 章）会出现「世界观拿到了第 3 章
+    的正文、上一章结尾却是空的」这种自相矛盾的清单。取到的**真实章号**写进 `source`，
+    作者一眼能看出这段结尾来自哪一章。
     """
 
     def _p(_inputs: Mapping[str, Any]) -> List[ContextPiece]:
-        prev = [c for c in chapters if getattr(c, "chapter_number", None) == chapter_number - 1]
-        if not prev:
+        prev = previous_chapter(chapters, chapter_number)
+        if prev is None:
             return []
-        content = (getattr(prev[0], "content", "") or "").strip()
+        content = (getattr(prev, "content", "") or "").strip()
         if not content:
             return []
+        used = getattr(prev, "chapter_number", chapter_number - 1)
         was_truncated = len(content) > CHAPTER_TAIL_CHARS
         tail = content[-CHAPTER_TAIL_CHARS:]
         return [
             ContextPiece(
                 text=tail,
-                source=f"chapter_tail:ch_{chapter_number - 1:04d}",
+                source=f"chapter_tail:ch_{used:04d}",
                 truncated=was_truncated,
             )
         ]
@@ -168,6 +191,85 @@ def _characters_provider(
 def _style_provider(style_block: str) -> Callable[[Mapping[str, Any]], List[ContextPiece]]:
     def _p(_inputs: Mapping[str, Any]) -> List[ContextPiece]:
         return [ContextPiece(text=style_block, source="style")] if style_block else []
+
+    return _p
+
+
+def previous_chapter(chapters: Sequence[Any], chapter_number: int) -> Any | None:
+    """取**紧邻的前一章**对象（编号 < 本章 里最大的那一章）；没有就 `None`。
+
+    装配器里所有"上一章"口径都必须走这里 —— 同一份上下文里两套口径会让作者无法解释
+    注入清单（N8 评审 P2-6）。
+    """
+    previous = [c for c in chapters if getattr(c, "chapter_number", 0) < chapter_number]
+    if not previous:
+        return None
+    return max(previous, key=lambda c: c.chapter_number)
+
+
+def previous_chapter_text(chapters: Sequence[Any], chapter_number: int) -> str:
+    """取**紧邻的前一章**正文。
+
+    刻意不用 `chapters[-1]`：补写中间某章、或本章已有正文（重写场景）时，`[-1]` 会取到
+    错的文本，甚至把**正在写/未来**章节的内容当触发源 —— 那等于提前把设定泄漏进 prompt。
+    只取「编号 < 本章」里最大的那一章；没有就返回空串（第一章没有触发源，槽位空着）。
+    """
+    prev = previous_chapter(chapters, chapter_number)
+    if prev is None:
+        return ""
+    return getattr(prev, "content", "") or ""
+
+
+def _lore_provider(
+    novel: Novel, chapter_number: int
+) -> Callable[[Mapping[str, Any]], List[ContextPiece]]:
+    """世界观（Lorebook）——按关键词从**本书**的设定集里触发（N8 方案 B）。
+
+    这是本节点的核心落点：装配器原先没有世界观槽位，v2 路径不注入设定集。
+
+    只读 `novel.lorebooks`（本书真源）→ 书间隔离由数据来源保证（`build_novel_builder`
+    拿到的是**这一本** `Novel`，provider 不再去读任何共享目录），不需要额外过滤。
+    端到端证据：`tests/e2e/test_n8_lore_real_http.py::test_other_book_lore_never_leaks`
+    —— 两本书用**同一个触发词**、各自内容不同，断言彼此不进对方的 prompt。
+
+    命中条目的文本自带 `[书名] 触发词` 标签，模型才知道这段设定属于哪个世界。
+
+    `max_results=None` + 自己截断到 `LORE_MAX_ENTRIES`：静默丢第 N+1 条会让清单与真实注入
+    不一致（N8 评审 P2-2），所以超出部分额外发一条 `lore:overflow` 片段自报条数。
+
+    返回 `[]` → 进 `manifest.skipped: empty`。这个 `empty` **同时覆盖三种成因**：本书没有
+    设定集 / 第一章没有触发源 / 有触发源但没命中关键词。与既有槽位口径一致（`_chapter_tail_provider`
+    等同样只用 `empty`，不单独造理由字符串），三种成因的区别请看 `entries` 是否为空 + 本书有没有
+    设定集（N8 评审 P2-3 的处置：口径写清楚，由 `test_skipped_empty_reason_is_shared_by_three_causes` 钉住）。
+    """
+
+    def _p(_inputs: Mapping[str, Any]) -> List[ContextPiece]:
+        books = getattr(novel, "lorebooks", None) or {}
+        if not books:
+            return []
+        text = previous_chapter_text(getattr(novel, "chapters", []) or [], chapter_number)
+        if not text:
+            return []
+        matches = find_matching_entries(books, text, max_results=None)
+        pieces: List[ContextPiece] = []
+        for book_name, entry_id, entry in matches[:LORE_MAX_ENTRIES]:
+            head = f"[{book_name}] {'|'.join(entry.keys)}"
+            pieces.append(
+                ContextPiece(text=f"{head}\n{entry.content}", source=f"lore:{book_name}:{entry_id}")
+            )
+        dropped = len(matches) - LORE_MAX_ENTRIES
+        if dropped > 0:
+            pieces.append(
+                ContextPiece(
+                    text=(
+                        f"（另有 {dropped} 条设定在本章触发，超出单次注入上限 "
+                        f"{LORE_MAX_ENTRIES} 条，本次未注入）"
+                    ),
+                    source="lore:overflow",
+                    truncated=True,
+                )
+            )
+        return pieces
 
     return _p
 
@@ -216,6 +318,7 @@ def build_providers(
         "recap": _recap_provider(novel_id, recap_text),
         "chapter_tail": _chapter_tail_provider(getattr(novel, "chapters", []) or [], chapter_number),
         "characters": _characters_provider(getattr(novel, "characters", {}) or {}),
+        "lore": _lore_provider(novel, chapter_number),
         "threads": _threads_provider(novel, chapter_number),
     }
 

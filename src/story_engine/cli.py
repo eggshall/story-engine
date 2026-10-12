@@ -66,10 +66,14 @@ def _resolve_novel_id(novel_id: str) -> str:
     """把命令行给的 novel_id 解析成真实 id；没给且只有一本时就用那本。
 
     N8 起角色卡/世界观属于某一本小说（不再是全局目录），所以命令必须知道是哪本书。
+    显式给的 id 也**校验存在**：否则 `story lore list --novel 打错的名字` 会一路走到
+    `NovelNotFound` 并甩出裸堆栈，而不是「小说不存在」（N8 评审 P2-4）。
     """
-    from story_engine.tools.novel_storage import list_novels
+    from story_engine.tools.novel_storage import list_novels, load_novel
 
     if novel_id:
+        if load_novel(novel_id) is None:
+            raise click.ClickException(f"小说不存在：{novel_id}（用 `story novel list` 看有哪几本）")
         return novel_id
     novels = list_novels()
     if len(novels) == 1:
@@ -183,22 +187,25 @@ def lore():
 
 
 @lore.command(name="list")
-def cmd_list_lore():
-    """列出所有设定集"""
-    books = list_lorebooks()
+@novel_option
+def cmd_list_lore(novel_id: str):
+    """列出设定集（**按小说绑定**，N8）"""
+    novel_id = _resolve_novel_id(novel_id)
+    books = list_lorebooks(novel_id)
     if not books:
-        click.echo("暂无设定集。运行 `story lore example` 创建示例。")
+        click.echo(f"《{novel_id}》暂无设定集。运行 `story lore example --novel {novel_id}` 创建示例。")
         return
-    click.echo(f"共 {len(books)} 个设定集：")
+    click.echo(f"《{novel_id}》共 {len(books)} 个设定集：")
     for name in books:
         click.echo(f"  • {name}")
 
 
 @lore.command(name="show")
 @click.argument("name")
-def cmd_show_lore(name: str):
+@novel_option
+def cmd_show_lore(name: str, novel_id: str):
     """查看设定集详情"""
-    book = load_lorebook(name)
+    book = load_lorebook(_resolve_novel_id(novel_id), name)
     if not book:
         click.echo(f"未找到设定集：{name}")
         return
@@ -212,9 +219,10 @@ def cmd_show_lore(name: str):
 
 @lore.command(name="delete")
 @click.argument("name")
-def cmd_delete_lore(name: str):
+@novel_option
+def cmd_delete_lore(name: str, novel_id: str):
     """删除设定集"""
-    if delete_lorebook(name):
+    if delete_lorebook(_resolve_novel_id(novel_id), name):
         click.echo(f"已删除设定集：{name}")
     else:
         click.echo(f"未找到：{name}")
@@ -222,9 +230,14 @@ def cmd_delete_lore(name: str):
 
 @lore.command()
 @click.argument("text")
-def match(text: str):
-    """测试关键词匹配"""
-    ctx = build_lore_context(text)
+@novel_option
+def match(text: str, novel_id: str):
+    """测试关键词匹配（用本书的设定集触发）"""
+    from story_engine.tools.novel_storage import load_novel
+
+    novel_id = _resolve_novel_id(novel_id)
+    novel = load_novel(novel_id)
+    ctx = build_lore_context(novel.lorebooks if novel else {}, text)
     if ctx:
         click.echo(ctx)
     else:
@@ -232,12 +245,18 @@ def match(text: str):
 
 
 @lore.command(name="example")
-def cmd_example_lore():
-    """创建示例设定集"""
+@novel_option
+def cmd_example_lore(novel_id: str):
+    """创建示例设定集（写入 --novel 指定的那本书）"""
+    from story_engine.tools.novel_storage import _novel_dir
+
+    novel_id = _resolve_novel_id(novel_id)
     book = create_example_lorebook()
-    ok = save_lorebook(book, overwrite=True)
+    ok = save_lorebook(novel_id, book, overwrite=True)
     if ok:
         click.echo(f"已创建示例设定集：{book.name}（{len(book.entries)} 个条目）")
+        click.echo(f"  只读导出：{_novel_dir(novel_id) / 'lore' / f'{book.name}.json'}")
+        click.echo("  （该目录仅供查看/diff；真源是 novel.json，手改镜像不会生效）")
     else:
         click.echo("创建失败")
 
@@ -339,14 +358,17 @@ def info():
     click.echo(f"配置目录：{config_dir()}")
     click.echo("")
     cards: list = []
+    books: list = []
     try:
         from story_engine.tools.novel_storage import list_novels
 
+        # N8：角色卡与设定集都按小说绑定 → 汇总时要逐本统计
         for n in list_novels():
-            cards.extend(list_cards(str(n["id"])))
-    except Exception:  # noqa: BLE001 —— 信息命令不该因为读不到卡就崩
+            nid = str(n["id"])
+            cards.extend(list_cards(nid))
+            books.extend(list_lorebooks(nid))
+    except Exception:  # noqa: BLE001 —— 信息命令不该因为读不到卡/设定集就崩
         pass
-    books = list_lorebooks()
     click.echo(f"角色卡：{len(cards)} 张")
     click.echo(f"设定集：{len(books)} 个")
     if cards:

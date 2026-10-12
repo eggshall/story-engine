@@ -16,14 +16,11 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
+from story_engine.core.errors import NovelNotFound  # noqa: F401 —— 兼容既有导入点
 from story_engine.core.models import CharacterCard, Novel
 from story_engine.tools.novel_storage import load_novel, save_novel
 
 logger = logging.getLogger("story_engine.characters.manager")
-
-
-class NovelNotFound(Exception):
-    """小说不存在（调用方应转成用户可读的失败响应）。"""
 
 
 def _require_novel(novel_id: str) -> Novel:

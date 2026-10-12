@@ -192,7 +192,7 @@
 | **N5** ✅ | A 类校验器 5 条 + `api/routes/check.py`（含漂移无基线时返回 ok/skipped 的行为） | N4 |
 | **N6** ✅ | 审稿页（路由 + 导航注册 + 三栏 + 带指令重写）+ 注入清单落盘 `GET /api/check/manifest` | N4/N5 |
 | **N7** | 章摘要 + SQLite（走 `_novel_dir`）+ 装配接入 + 离线串行队列 | N4 |
-| **N8** 🚧 **⬅ 下一个（残项）** | 项目空间：角色卡/世界观**按小说绑定**（全局目录退役）+ 素材库（仅作复制来源）—— 角色卡 / 素材库 / 接口 / 前端**已落地**（提交 `08a8eab`），**世界观（lore）与浏览器 E2E 未做** | N6 |
+| **N8** 🚧 **⬅ 下一个（残项）** | 项目空间：角色卡/世界观**按小说绑定**（全局目录退役）+ 素材库（仅作复制来源）。**已落地**：角色卡 / 素材库 / 接口 / 前端（`08a8eab`）+ **世界观按书绑定 / 装配器 `lore` 槽位 / `lore/` 镜像语义**（本切片，见「N8 进度」末节）。**未做**：`/api/novel/{id}/lorebooks` 系列与素材库 lore 端点、`WorldView` 设定集区块、世界观浏览器 E2E | N6 |
 | **N9** ✅ | **伏笔账本 + 注入 + 校验（最小版）**：`novel.json` 增 `threads`；装配器挂 `threads` provider/槽位；A 类校验 2 条；`/api/novel/{id}/threads` CRUD。**不改装配器签名、不改 SSE 契约、不引入检索** —— 要点见 §9.1.1。**已落地**：提交 `387734b` + `f5418c9`，评审 `docs/design/reviews/N9-REVIEW.md`（无 P0，11 项全处置） | N8（世界观按书绑定） |
 
 **N8 进度（2026-10-11 收工时）**
@@ -222,6 +222,26 @@
 4. opencode 只读评审 → 逐条处置 → 一个节点一次提交
 5. 待办：`AGENTS.md` 补 N8 约定（需用户在弹窗批准）；`data/novels/{custom-exports,test-novel,导出测试}`
    是空壳残留目录（无 novel.json，界面不显示），可与用户确认后一并清掉
+
+**N8 世界观切片（2026-10-12 收工）**
+
+上面第 1 条的**前半**（lore 按书绑定）已完成，第 4 条（评审）已走完：
+
+| 项 | 状态 |
+|---|---|
+| `lore/lorebook.py` novel-scoped（`_require_novel`，不再碰全局 `data/lore/`） | ✅ |
+| 触发引擎改**纯函数**（接设定集字典，不读盘）→ 引擎与装配器同一份数据 | ✅ |
+| `engine._build_world_context(chapter_number)` 只用本书 `lorebooks`；**章号必填无默认值**（mypy 揪出全部 4 个调用点） | ✅ |
+| 装配器新增 `lore` 槽位（方案 B）：走既有 `extra_providers` 口子，**不改 `build_novel_builder` 签名** | ✅ |
+| 触发源 = **紧邻的前一章**（不许拿正在写/未来章节当触发源）；`chapter_tail` 与 lore 统一到同一口径 | ✅ |
+| `_write_files` 对 `lore/` 改为「先清空再重建」（原为只写不清空，是三个镜像目录里唯一的例外） | ✅ |
+| E2E 留痕 `tests/e2e/test_n8_lore_real_http.py`（6 例：命中入清单＋上游真实 prompt、**书间隔离**、无触发源、未命中、真源/镜像落盘、删除后残影被清） | ✅ |
+| 评审 `docs/design/reviews/N8-REVIEW.md`（无 P0；2 个 P1 + 8 个 P2 全处置） | ✅ |
+| `/api/novel/{id}/lorebooks` 系列 + 素材库 lore 端点 | ⬜ 未做 |
+| `WorldView` 设定集区块（现状：页面内写死假数据，全项目无 `/api/lore` 调用） | ⬜ 未做 |
+| 世界观**浏览器** E2E | ⬜ 未做（依赖上面两项） |
+
+门禁：**965 passed / 3 skipped，覆盖率 94.54%** · ruff · mypy（66 文件）· vitest 104 · vue-tsc 0 · vite build ✓
 
 
 ### N8 决策（用户已定，2026-10-11）
@@ -289,7 +309,7 @@
 |---|---|
 | `chapters/` | 先 unlink 所有 `*.json` 再写 |
 | `characters/` | 先 unlink 所有 `*.json` 再写 |
-| `lore/` | **只写，不清空**（历史实现差异，未做统一） |
+| `lore/` | **先清空再重建**（N8 统一，原为"只写不清空"） |
 | `threads/`（N9 新增） | 采用与 `characters/` **一致**的「先清空再重建」—— 这样删掉的伏笔不会在目录里留残影 |
 
 因此伏笔**必须经 `threads.manager`（load → 改模型 → save）写入**，不能直接写这个目录，
@@ -360,7 +380,10 @@ Slot("threads", priority=SUMMARIES, provider="threads", renderer="bullets", max_
 `api/routes/check.py`（有账本才追加伏笔规则）。
 
 **实现中相对设计的两处修正（都已写回本文档）**：
-1. 镜像目录行为按代码更正（`lore/` 只写不清空；`threads/` 与 `characters/` 一致先清空）；
+1. 镜像目录行为按代码更正（当时 `lore/` 只写不清空、`threads/` 与 `characters/` 一致先清空）；
+   → **后续变更（2026-10-12，N8）**：`lore/` 已统一为「先清空再重建」，本文档 §9.1.1
+   陷阱表与本行已同步。lore 的镜像**仍是只读导出**（`load_novel` 不回读 `lore/`），
+   与 `characters/` 的非对称是刻意的（N8 评审 P2-8）。
 2. **校验接口只在「有账本」时追加伏笔规则**（而非总是跑、无账本记 `skipped`）。
    理由：后者会让每本还没用过账本的旧书报告里凭空多出两条 `skipped` 规则，
    改变 N5 既定响应形状 —— 取最小影响。已用 E2E 钉死该不变量

@@ -113,6 +113,36 @@ class TestChapterTail:
 
         assert _slice(providers["chapter_tail"]) == []
 
+    def test_chapter_gap_uses_the_last_written_chapter(self, novels_root: Path):
+        """章节跳号（缺第 4 章）时，「上一章」= 已写过里编号最大的那章。
+
+        与世界观**共用同一个口径**（N8 评审 P2-6）：原实现写死 `chapter_number - 1`，
+        于是写第 5 章而第 4 章缺号时会给出「世界观拿到了第 3 章正文、上一章结尾却是空的」
+        这种自相矛盾的清单。`source` 必须写**真实**章号，作者才知道这段来自哪一章。
+        """
+        from story_engine.core.models import LoreBook, LorebookEntry
+
+        novel = Novel(title="t")
+        novel.lorebooks = {
+            "天玄大陆": LoreBook(
+                name="天玄大陆",
+                entries={"culti": LorebookEntry(keys=["筑基"], content="境界：筑基→金丹")},
+            )
+        }
+        novel.chapters = [
+            Chapter(chapter_number=3, title="三", content="他运转筑基功法。"),
+            Chapter(chapter_number=5, title="五", content="当前章正文"),
+        ]
+
+        providers = cs.build_providers(novel, "gap-novel", chapter_number=5)
+
+        tail = _slice(providers["chapter_tail"])
+        assert len(tail) == 1
+        assert tail[0].source == "chapter_tail:ch_0003"
+        assert "筑基功法" in tail[0].text
+        # 两套口径必须指向同一章：世界观也由第 3 章触发（若退回"精确上一章"就会是空的）
+        assert [p.source for p in _slice(providers["lore"])] == ["lore:天玄大陆:culti"]
+
 
 class TestCharactersAndStyle:
     def test_characters_use_existing_renderer(self):
@@ -245,10 +275,12 @@ class TestDefaultSlotsAndBuilder:
         #    不是意外——N9 加 threads 槽位时更新过一次）。只加槽位不加断言会让 prompt
         #    顺序漂移而无人发现，所以保留快照 + 旁加不变式（见下）。
         assert [s.slot_id for s in cs.default_slots()] == [
-            "mainline", "style", "beat", "threads", "recap", "chapter_tail", "characters"
+            "mainline", "style", "beat", "threads", "recap", "chapter_tail", "characters", "lore"
         ]
         # 不变式：伏笔是"记忆"类，不许被提成 PINNED（提了就会挤掉风格块/节拍）
         assert slots["threads"].priority > PINNED
+        # 不变式：世界观是"资料"类，同样不许 PINNED（N8 方案 B 新增槽位）
+        assert slots["lore"].priority > PINNED
 
     def test_builder_assembles_from_files_with_manifest(self, novels_root: Path):
         d = novels_root / "n2"

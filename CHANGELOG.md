@@ -16,7 +16,18 @@
   两条铁律：**无基线返回 `skipped` 不猜**、**别把正常中文当套话**
 - ✅ **N6** — 审稿页（三栏 + 带指令重写）+ 注入清单落盘 `GET /api/check/manifest`
 - 🚧 **N8**（部分）— 项目空间：**角色卡按小说绑定**（全局目录退役）+ 素材库（纯复制语义）
-  + `/api/novel/{id}/characters` 系列 + 前端接上；**世界观（lore）按书绑定与浏览器 E2E 未做**
+  + `/api/novel/{id}/characters` 系列 + 前端接上
+- 🚧 **N8 世界观切片** — **世界观（lore）按书绑定** + 装配器新增 `lore` 槽位：
+  - 全局 `data/lore/` 退役：`list/load/save/delete_lorebook` 全部带 `novel_id`，
+    真源 `novel.json` 的 `lorebooks`，镜像 `lore/`（**只读导出**，与 `characters/` 的非对称是刻意的）
+  - 触发引擎改**纯函数**（接收设定集字典，不读盘）；`engine._build_world_context(chapter_number)`
+    只用本书 `lorebooks`，章号**必填无默认值**
+  - 装配器挂 `lore` 槽位（走既有 `extra_providers`，**不改 `build_novel_builder` 签名**）：
+    走 v2 路径从此真的注入世界观；触发源只用**紧邻的前一章**，且与 `chapter_tail` 统一口径
+  - `_write_files` 对 `lore/` 改为「先清空再重建」（原为只写不清空，是三个镜像目录里唯一的例外）
+  - 评审 `docs/design/reviews/N8-REVIEW.md`（**无 P0**；2 个 P1 + 8 个 P2 全处置，
+    含「命中超上限静默丢弃」「`lore` 反向依赖 `characters`」「两套上一章口径」）
+  - ⬜ 未做：`/api/novel/{id}/lorebooks` 系列 + 素材库 lore 端点、`WorldView` 设定集区块、浏览器 E2E
 - ✅ **N9** — **伏笔账本 + 注入 + 校验（最小版）**：`PlotThread` + `Novel.threads`
   （真源 `novel.json`，镜像 `threads/`）；装配器 `threads` 槽位（`priority=SUMMARIES`）；
   校验新增 `dangling_threads` / `unknown_payoff`；`/api/novel/{id}/threads` 5 个端点
@@ -27,9 +38,10 @@
 
 ### 质量基线
 
-- 后端：**921 passed / 3 skipped**，覆盖率 **94.36%**（门禁 75%）；ruff / mypy 全绿
-- 前端：vitest **104 passed**；vue-tsc 0
-- 评审：`docs/design/reviews/N0–N6、N9-REVIEW.md`（各节点均"需补充/修复后通过 → 已逐条处置"）
+- 后端：**965 passed / 3 skipped**，覆盖率 **94.54%**（门禁 75%）；ruff / mypy（66 文件）全绿
+- 前端：vitest **104 passed**；vue-tsc 0；vite build ✓
+- 评审：`docs/design/reviews/N0–N6、N8、N9-REVIEW.md`（各节点均"需补充/修复后通过 → 已逐条处置"）
+- E2E：后端真实 HTTP 到 `tests/e2e/`（N1/N2/N3/N4b/N5/N6/N8/N9）；前端真实浏览器到 `e2e/`
 
 ## [0.8.0] — 2026-08-03
 

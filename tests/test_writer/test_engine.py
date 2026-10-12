@@ -82,11 +82,11 @@ class TestContextBuild:
     def test_world_context_empty_without_chapters(self):
         engine = _engine()
         engine.load_novel(_novel(with_chapters=False))
-        assert engine._build_world_context() == ""
+        assert engine._build_world_context(1) == ""
 
     def test_world_context_empty_without_novel(self):
         engine = _engine()
-        assert engine._build_world_context() == ""
+        assert engine._build_world_context(1) == ""
 
 
 class TestGenerateOutline:
