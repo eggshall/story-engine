@@ -399,7 +399,7 @@ class TestPipeline:
         import story_engine.data_pipeline.config as cfg_mod
 
         monkeypatch.setenv("STORY_ENGINE_DATA_ROOT", "relative/path")
-        assert cfg_mod._resolve_data_root() == __import__("pathlib").Path("/mnt/d/文章数据")
+        assert cfg_mod._resolve_data_root() == __import__("pathlib").Path.home() / "story-engine-data"
         err = capsys.readouterr().err
         assert "STORY_ENGINE_DATA_ROOT" in err
         assert "绝对路径" in err

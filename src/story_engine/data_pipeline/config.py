@@ -1,7 +1,7 @@
 """P6 数据管线 — 路径配置。
 
-所有采集数据统一存于 D:/文章数据 (WSL 挂载 /mnt/d/文章数据)。
-可通过环境变量 STORY_ENGINE_DATA_ROOT 覆盖（L17.3）。
+数据根目录通过环境变量 STORY_ENGINE_DATA_ROOT 注入（绝对路径）；
+未设置时回退到 `~/story-engine-data`（通用默认，不含任何机器特定路径）。
 """
 import logging
 import os
@@ -10,10 +10,11 @@ from pathlib import Path
 
 logger = logging.getLogger("story_engine.pipeline.config")
 
-# D 盘数据根目录：优先环境变量注入，否则默认 WSL 挂载路径（L17.3）
+# D 盘数据根目录：优先环境变量注入，否则回退通用默认目录（L17.3）
 _DATA_ROOT_ENV = "STORY_ENGINE_DATA_ROOT"
 
-_DEFAULT_DATA_ROOT = Path("/mnt/d/文章数据")
+# 通用默认（不含机器特定路径）；生产/本机请用 STORY_ENGINE_DATA_ROOT 指定实际目录
+_DEFAULT_DATA_ROOT = Path.home() / "story-engine-data"
 
 
 def _resolve_data_root() -> Path:

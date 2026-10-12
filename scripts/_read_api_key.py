@@ -6,8 +6,9 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
-sys.path.insert(0, "/home/syzc/story-engine/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from story_engine.core.config import get_config  # noqa: E402
 

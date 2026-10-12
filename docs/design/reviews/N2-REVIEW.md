@@ -49,7 +49,7 @@ Let me run the full backend suite to check for regressions.
 
 ### P1-3　临时配置把真实 `security.api_key` 以 0644 写入 `/tmp` 且退出不清理
 - 位置：`scripts/e2e_fake_config.py:56-61`（原样 dump 真实配置，含 key）+ `scripts/e2e_dev_stack.sh:45-46`（固定 `--out /tmp/e2e_fake_config.yaml`）+ `:23-28`（cleanup 只杀进程，不删文件）。
-- 证据：`ls -l /tmp/e2e_fake_config.yaml` → `-rw-r--r-- 1 syzc syzc 511 ...`（本机 umask 0022）。该文件明文保存真实 `api_key`（脚本注释只说「不打印」，但落盘仍是对密钥的复制），任何本地用户/进程可读，且退出后长期留存。
+- 证据：`ls -l /tmp/e2e_fake_config.yaml` → `-rw-r--r-- 1 <user> <user> 511 ...`（本机 umask 0022）。该文件明文保存真实 `api_key`（脚本注释只说「不打印」，但落盘仍是对密钥的复制），任何本地用户/进程可读，且退出后长期留存。
 - 影响：与项目 AGENTS.md「密钥来源与安全」约定相悖；虽为单用户本机场景影响有限，但属应修的泄漏面。
 - 建议改法：用 `mktemp`（默认 0600）或写后 `chmod 600`；并在 `cleanup` 中 `rm -f "$CFG_ENV"`。注意 prompt 本身也强调不得暴露该 key，评审仅列路径/权限，未读取内容。
 

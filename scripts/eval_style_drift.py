@@ -27,10 +27,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from story_engine.data_pipeline.config import CORPUS_DIR  # noqa: E402
 from story_engine.style.drift import build_baseline, detect_drift  # noqa: E402
 from story_engine.style.metrics import measure  # noqa: E402
 
-DEFAULT_BOOK = Path("/mnt/d/文章数据/corpus/imports/全民魔女1994.txt")
+DEFAULT_BOOK = CORPUS_DIR / "imports" / "全民魔女1994.txt"
 CH = re.compile(r"(?:^|\n)\s*第\s*[0-9零一二三四五六七八九十百千两]+\s*[章回]")
 WINDOW = 10
 SAMPLE = 300

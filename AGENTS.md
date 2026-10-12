@@ -112,7 +112,7 @@ npm run e2e                             # = playwright test --config e2e/playwri
 
 opencode 用法（本机二进制在 `~/.nvm/versions/node/v22.23.2/bin/opencode`）：
 ```bash
-export PATH=$PATH:/home/syzc/.nvm/versions/node/v22.23.2/bin && source ~/.bashrc
+export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH" && source ~/.bashrc
 opencode run --agent <角色> "<提示词>"      # 角色: requirements / decomposer / coder / tester / fixer
 ```
 

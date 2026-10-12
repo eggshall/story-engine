@@ -162,8 +162,9 @@ def main() -> None:
             print("\n开始采集...")
             collect(args.genre)
     elif args.imports:
+        from .config import IMPORTS_DIR
         from .importer import scan_imports
-        print("扫描 D:/文章数据/imports/ ...")
+        print(f"扫描 {IMPORTS_DIR} ...")
         # 导入默认按流行文学处理（网络小说等用户自有文本）
         recs = scan_imports(genre=args.genre or "popular")
         print(f"导入 {len(recs)} 个文件")

@@ -6,8 +6,9 @@ import json
 import sys
 import time
 import uuid
+from pathlib import Path
 
-sys.path.insert(0, "/home/syzc/story-engine/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from story_engine.style.db import StyleDb, StyleProfile
 

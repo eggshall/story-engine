@@ -1,5 +1,5 @@
 {
-  "file_path": "/home/syzc/story-engine/docs/research/R1-long-context-memory.md",
+  "file_path": "docs/research/R1-long-context-memory.md",
   "key_findings": [
     "纯「全文塞进上下文」路线已被三份独立实证证伪：RULER(2404.06654)发现17个标称≥32K的模型只有一半在32K维持性能；NoLiMa(2502.05167)发现13个模型在32K处11个跌到短基线50%以下、GPT-4o从99.3%跌到69.7%；Chroma Context Rot报告(18模型受控实验)显示性能随长度一致衰减、干扰项破坏力被放大。",
     "2000万字≈1500-2000万token，远超128K窗口；唯一可行方向是「外部化记忆+按需检索注入」，把写作当下最相关的小撮材料喂进窗口，绝不塞全文。",

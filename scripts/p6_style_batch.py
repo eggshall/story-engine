@@ -7,6 +7,11 @@ import re
 import sys
 import time
 import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from story_engine.data_pipeline.config import DATA_ROOT  # noqa: E402
 
 OLLAMA = "http://localhost:11434"
 MODEL = "gm4:latest"
@@ -81,7 +86,7 @@ def call_model(text):
 
 def process_book(book):
     """处理一本书，返回 (features, sample, error)"""
-    path = f"/mnt/d/文章数据/{book['file']}"
+    path = str(DATA_ROOT / book["file"])
     try:
         with open(path, encoding="utf-8") as f:
             full = f.read()

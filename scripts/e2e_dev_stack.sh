@@ -12,9 +12,10 @@
 #   所以鉴权链路仍然真实；只有 llm.models 换成本地假上游）。
 # - 退出（含 Ctrl-C / 脚本结束）会清理自己起的三个进程，避免残留占用 8000/5173/8899。
 set -u
-cd /home/syzc/story-engine
-export PATH=/home/syzc/.nvm/versions/node/v22.23.2/bin:$PATH
-export NVM_DIR=/home/syzc/.nvm
+# 仓库根：从脚本自身位置推导，避免硬编码本机绝对路径
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"
+export NVM_DIR="$HOME/.nvm"
 
 MODE="${1:-}"
 FAKE_PORT="${E2E_FAKE_PORT:-8899}"

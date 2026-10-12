@@ -180,7 +180,7 @@
   - [x] L16.1 预分词建索引；每地名最多一条 issue；提高匹配阈值
 
 ### L17. 杂项修复
-- **位置**：`novel_storage.py:213`（Windows 路径转换触发条件）、`pipeline.py:75-76` vs `config.py:27`（题材回退名不一致）、`data_pipeline/config.py:8`（硬编码 `/mnt/d/文章数据`）
+- **位置**：`novel_storage.py:213`（Windows 路径转换触发条件）、`pipeline.py:75-76` vs `config.py:27`（题材回退名不一致）、`data_pipeline/config.py`（硬编码本地数据根路径）
 - **任务**：
   - [x] L17.1 Windows 盘符路径 `D:\` 正确识别
   - [x] L17.2 题材回退目录名统一
