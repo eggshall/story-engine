@@ -199,3 +199,48 @@ class TestLibrary:
 
         assert resp.json()["success"] is False
         assert "不存在" in resp.json()["message"]
+
+    def test_slug_collision_does_not_silently_overwrite(self):
+        """素材库的文件名不是身份：不同名字撞同一文件名必须显式失败（N8 评审 P1-1）。
+
+        `_slug` 有损（`"A B"` / `"A_B"` 都 → `A_B`），原来两次另存都返回 success=true，
+        先导出的那份无声消失。这里用**同一个源卡 + 两个会撞车的 new_name** 构造，
+        以免混入另一个既有缺陷（见下）。
+
+        ⚠️ 已知的**既有**缺陷（不在本切片范围，已在 `N8-REVIEW.md` 记录）：`characters/`
+        镜像的文件名也走 `_slug`，而 `load_novel` 会**回读**该目录。所以同一本书里同时建
+        `"A B"` 与 `"A_B"` 两张卡时，两个镜像写同一个文件，回读后后者把前者顶掉 ——
+        真源 `novel.json` 里两张都在，但界面上先建的那张**看不见**（`lore/` 没这个问题，
+        因为它不回读）。
+        """
+        _create("novel_a", _card("沈约", description="第一份"))
+
+        first = client.post("/api/novel/novel_a/characters/沈约/to-library",
+                            params={"new_name": "A B"})
+        second = client.post("/api/novel/novel_a/characters/沈约/to-library",
+                             params={"new_name": "A_B"})
+
+        assert first.json()["success"] is True
+        assert second.json()["success"] is False
+        assert "文件名" in second.json()["message"]
+        # 先导出的那份还在，内容没被吃；names 用内嵌名而不是 slug 后的 stem
+        lib = client.get("/api/library/characters").json()["data"]
+        assert lib["names"] == ["A B"]
+        assert lib["cards"][0]["description"] == "第一份"
+
+    def test_import_missing_material_says_so(self):
+        """「素材库里没有」与「本书已有同名」要分开说（N8 评审 P1-2）。"""
+        resp = client.post("/api/novel/novel_a/characters/import",
+                           json={"source": "library", "name": "ghost"})
+
+        assert resp.json()["success"] is False
+        assert "素材库里没有" in resp.json()["message"]
+
+    def test_invalid_source_is_not_a_server_error(self):
+        """`source` 非法 → 可读失败，不是 HTTP 500（N8 评审 P1-3）。"""
+        resp = client.post("/api/novel/novel_a/characters/import",
+                           json={"source": "../../etc/passwd", "name": "沈约"})
+
+        assert resp.status_code == 200
+        assert resp.json()["success"] is False
+        assert "非法" in resp.json()["message"]

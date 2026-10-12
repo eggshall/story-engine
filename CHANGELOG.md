@@ -25,9 +25,12 @@
   - 装配器挂 `lore` 槽位（走既有 `extra_providers`，**不改 `build_novel_builder` 签名**）：
     走 v2 路径从此真的注入世界观；触发源只用**紧邻的前一章**，且与 `chapter_tail` 统一口径
   - `_write_files` 对 `lore/` 改为「先清空再重建」（原为只写不清空，是三个镜像目录里唯一的例外）
+  - 接口：`/api/novel/{id}/lorebooks`（GET/POST/PUT/DELETE）+ 素材库 `/api/library/lorebooks`、
+    `.../{name}/to-library`、`.../{name}/import`；请求体 `extra="forbid"`（拼错字段 422，不静默丢弃），
+    **改名时目标名已被占用会显式失败**（N9 评审 P1-1 那类「删旧建新静默吃掉另一条」的守卫）
   - 评审 `docs/design/reviews/N8-REVIEW.md`（**无 P0**；2 个 P1 + 8 个 P2 全处置，
     含「命中超上限静默丢弃」「`lore` 反向依赖 `characters`」「两套上一章口径」）
-  - ⬜ 未做：`/api/novel/{id}/lorebooks` 系列 + 素材库 lore 端点、`WorldView` 设定集区块、浏览器 E2E
+  - ⬜ 未做：`WorldView` 设定集区块（现状是页面内写死的假数据）、世界观浏览器 E2E
 - ✅ **N9** — **伏笔账本 + 注入 + 校验（最小版）**：`PlotThread` + `Novel.threads`
   （真源 `novel.json`，镜像 `threads/`）；装配器 `threads` 槽位（`priority=SUMMARIES`）；
   校验新增 `dangling_threads` / `unknown_payoff`；`/api/novel/{id}/threads` 5 个端点
@@ -38,7 +41,7 @@
 
 ### 质量基线
 
-- 后端：**965 passed / 3 skipped**，覆盖率 **94.54%**（门禁 75%）；ruff / mypy（66 文件）全绿
+- 后端：**995 passed / 3 skipped**，覆盖率 **94.43%**（门禁 75%）；ruff / mypy（68 文件）全绿
 - 前端：vitest **104 passed**；vue-tsc 0；vite build ✓
 - 评审：`docs/design/reviews/N0–N6、N8、N9-REVIEW.md`（各节点均"需补充/修复后通过 → 已逐条处置"）
 - E2E：后端真实 HTTP 到 `tests/e2e/`（N1/N2/N3/N4b/N5/N6/N8/N9）；前端真实浏览器到 `e2e/`

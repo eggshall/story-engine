@@ -100,3 +100,89 @@ vitest 104 · vue-tsc 0 · vite build ✓
 
 **仍然未做（不属修复范围，是 N8 的后续增量）**：`/api/novel/{id}/lorebooks` 系列 +
 素材库 lore 端点、`WorldView` 设定集区块、世界观浏览器 E2E。
+
+---
+
+# N8 第二切片评审（设定集接口 + 素材库）
+
+> 评审方式：`opencode run --agent requirements`（**只读**评审，未改代码）
+> 评审日期：2026-10-12（同一天，承接 `2e84a34` 之后的新增改动）
+> 输入：`lore/library.py`、`api/routes/lorebooks.py`、`api/main.py`、
+>   `tests/test_lore/test_lorebooks_api.py`、`tests/e2e/test_n8_lorebooks_real_http.py`、三份文档改动
+
+## 结论性核对结果
+
+- 复核门禁：**982 passed / 3 skipped，覆盖率 94.27%**；ruff / mypy 68 文件全绿；两个新测试文件
+  13 + 4 例，计数属实；确认测试**没有**写进真实 `data/`。
+- **改名守卫实测有效**：`PUT /lorebooks/X {name:"Y"}`（Y 已存在）→ `success:false`，两条都在、内容未变。
+- **书间隔离实测成立**（单测层 + E2E 层，且 E2E 另有用例证明该内容本来会进 prompt，非空洞）。
+- **路由顺序无遮蔽**；`ApiResponse` 形状与 `characters.py` 一致；无 key 返回 401。
+- 结论：**无 P0**（无串书、无真源丢失、改名守卫有效）；**素材库这一块存在 3 个 P1 + 6 个 P2**。
+
+## P0
+
+无。
+
+## P1（3 条，全部已修）
+
+- **P1-1 · 素材库文件名用 `_slug` 清洗 → 不同名字映射同一文件，静默覆盖。**
+  实测：同书建 `"A B"` 与 `"A_B"` 分别另存，两次都 `success:true`，目录里只剩 `A_B.json`，
+  先导出的**无声消失**；且 `names` 回的是 slug 后的 stem 而 `books[].name` 是真名，两者不自洽。
+- **P1-2 · 导入不存在的素材时错误消息撒谎。** 实测 `{"source":"library","name":"ghost"}` →
+  「本书已有同名设定集「ghost」（可勾选覆盖）」；加 `overwrite:true` 消息一字不变（源本不存在）。
+- **P1-3 · 非法 `source` 触发未捕获异常 → HTTP 500。** 实测 `source:"../../etc/passwd"` →
+  `500 {"detail":"服务器内部错误"}`。异常链 `_require_novel → load_novel → _safe_novel_id` 抛
+  `ValueError`，而 `except` 只捕 `NovelNotFound`。**`characters.py` 同病。**
+
+## P2（6 条，全部已处置）
+
+- **P2-1** 导出对同名/跨书同名一律静默覆盖 → 加 `overwrite`。
+- **P2-2** `extra="forbid"` 只覆盖顶层，条目内拼错字段仍被丢弃（`categorie` 被无视且 `success:true`）。
+- **P2-3** `ImportLoreBookRequest` 不继承 `APIModel` → 驼峰 `newName` 被静默忽略。
+- **P2-4** 空名字被接受（存成 key `""`、镜像落 `untitled.json`，与任何 slug 为 untitled 的名字碰撞）。
+- **P2-5** `to-library` 的 `new_name` 只认 query、JSON body 被忽略。
+- **P2-6** 上述每一条都缺失败用例（13+4 例全绿掩盖了它们）。
+
+## 逐条处置表（⑥ 修复）
+
+| 编号 | 处置 | 落点 |
+|---|---|---|
+| P1-1 | 素材库**身份改为文件内嵌的 `name`**，文件名只负责寻址：`load_from_library` 校验内嵌名与请求名一致（不一致视为不存在），导出前比对目标文件 —— **同名同身份 = 幂等刷新**，**异身份撞同一文件名 = 显式失败**（除非 `overwrite=true`）；`list_library` 返回内嵌名。`characters/library.py` 同步 | `lore/library.py`、`characters/library.py` |
+| P1-2 | 返回码从 `bool` 改为 `Literal`：导出 `ok / source_missing / name_taken / write_failed`、导入 `ok / source_missing / target_exists`，路由分别发诚实消息（「素材库里没有 X」不再冒充「本书已存在」） | 两个 library + 两条路由 |
+| P1-3 | `import` 路由增捕 `ValueError` → `success:false`「源标识非法」；**`characters.py` 一起改** | `lorebooks.py`、`characters.py` |
+| P2-1 | 导出加 `overwrite`（默认 False）；同身份重复另存仍幂等，避免前端点两次报错 | 两个 library + 两条路由 |
+| P2-2 | 请求层新增 `LorebookEntryRequest(extra="forbid")`，`LoreBookRequest` 改为**独立边界模型** + `to_book()`（子类化会撞 `entries` 类型不协变）。**不动磁盘模型** `LoreBook`/`LorebookEntry` | `api/routes/lorebooks.py` |
+| P2-3 | `ImportLoreBookRequest` 改继承 `APIModel` | 同上 |
+| P2-4 | 请求层 `name: str = Field(min_length=1)`（同样只约束边界，老文件的空名不会被盘面校验炸掉） | 同上 |
+| P2-5 | **保留 query**（与角色卡端点、前端 `exportCharacterToLibrary` 一致）但**写进 docstring 作为契约**；返回值是素材身份名。**偏离评审建议**：改 body 会改掉既有 UI 调用契约，收益不足 | 两条路由 docstring |
+| P2-6 | 补 12 条失败用例：slug 碰撞不覆盖 / 同身份幂等 / `overwrite` 生效 / names 与 books 自洽 / 源缺失消息诚实 / 非法 source 非 500 / 驼峰 `newName` / 嵌套拼错 422 / 空名 422（lore 侧 9 条 + characters 侧 3 条）；characters 的 5 条旧用例改断 `ok`/`source_missing`/`target_exists` | 两个测试文件 |
+| **新发现** | 见下节，**本切片不修**，另开增量 | — |
+
+**修复后门禁**：**995 passed / 3 skipped，覆盖率 94.43%** · ruff 全绿 · mypy 68 文件全绿 ·
+vitest 104 · vue-tsc 0 · vite build ✓
+
+## ⚠️ 新发现（既有缺陷，比评审看到的更严重，本切片不修）
+
+**`characters/` 镜像文件名 slug 碰撞 + `load_novel` 回读镜像 = 真丢卡。**
+
+探针实测（`/tmp/probe_chars.py`，隔离 NOVELS_ROOT/LIBRARY_DIR）：
+
+```
+create 'A B'  200 True
+create 'A_B'  200 True
+to-library 'A B'  200 {'success': False, 'message': '角色卡「A B」不存在'}
+library files: ['A_B.json']
+names: ['A_B']
+```
+
+两处既有行为叠加：① `_write_files` 写 `characters/` 镜像时文件名走 `_slug`（有损，两个名字 →
+同一个文件，后写覆盖先写）；② `load_novel` **会回读** `characters/` 镜像并**替换** `novel.json`
+里的 `characters`。于是先建的那张卡在界面上**立刻看不见**（真源 `novel.json` 里其实两张都在，
+但要等一次「绕过镜像读」才能看到）。
+
+- `lore/` **没有**这个问题：它不回读镜像（评审第一轮 P2-8，刻意为之），真源即所见。
+- `threads/` 同理走 `_slug`，但 id 通常不含空格/斜杠，实际触发面小得多。
+- 修法（另开增量，需要 RED 先行）：镜像文件名不再单靠 `_slug` 定身份（加短 hash 后缀，或
+  回读时按内嵌 `name` 合并而不是整体替换）；改名会让既有镜像文件失效，但真源在 `novel.json`，
+  下次保存重建即可 —— 需专门验证老数据兼容。
+- 评级：**P1**（静默数据丢失路径，但触发需要名字 slug 碰撞这一条件）。

@@ -17,6 +17,7 @@ from story_engine.api.routes import (
     check,
     export,
     generate,
+    lorebooks,
     models,
     novel,
     research,
@@ -119,6 +120,7 @@ app.include_router(system.router)
 app.include_router(style.router)
 app.include_router(check.router)
 app.include_router(characters.router)
+app.include_router(lorebooks.router)
 app.include_router(threads.router)
 
 

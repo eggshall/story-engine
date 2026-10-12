@@ -237,11 +237,20 @@
 | `_write_files` 对 `lore/` 改为「先清空再重建」（原为只写不清空，是三个镜像目录里唯一的例外） | ✅ |
 | E2E 留痕 `tests/e2e/test_n8_lore_real_http.py`（6 例：命中入清单＋上游真实 prompt、**书间隔离**、无触发源、未命中、真源/镜像落盘、删除后残影被清） | ✅ |
 | 评审 `docs/design/reviews/N8-REVIEW.md`（无 P0；2 个 P1 + 8 个 P2 全处置） | ✅ |
-| `/api/novel/{id}/lorebooks` 系列 + 素材库 lore 端点 | ⬜ 未做 |
+| `/api/novel/{id}/lorebooks` 系列（GET/POST/PUT/DELETE）+ 素材库 lore 端点（`/api/library/lorebooks`、`.../{name}/to-library`、`.../import`） | ✅ 本轮补上 |
+| 接口测试 `tests/test_lore/test_lorebooks_api.py`（13 例）+ E2E `tests/e2e/test_n8_lorebooks_real_http.py`（4 例：鉴权、**录入→落盘→真的进下一次生成的 prompt**、书间隔离、素材库跨书复制） | ✅ |
 | `WorldView` 设定集区块（现状：页面内写死假数据，全项目无 `/api/lore` 调用） | ⬜ 未做 |
-| 世界观**浏览器** E2E | ⬜ 未做（依赖上面两项） |
+| 世界观**浏览器** E2E | ⬜ 未做（依赖上一项） |
 
-门禁：**965 passed / 3 skipped，覆盖率 94.54%** · ruff · mypy（66 文件）· vitest 104 · vue-tsc 0 · vite build ✓
+门禁：**995 passed / 3 skipped，覆盖率 94.43%** · ruff · mypy（68 文件）· vitest 104 · vue-tsc 0 · vite build ✓
+
+**第二切片评审（设定集接口 + 素材库，2026-10-12 同日）**：`docs/design/reviews/N8-REVIEW.md`
+下半部分 —— 无 P0；**3 个 P1 + 6 个 P2 全处置**（素材库 slug 身份碰撞静默覆盖 / 导入消息撒谎 /
+非法 `source` 返 500 / 嵌套拼错字段 / 驼峰被忽略）。该轮**新发现一条既有 P1**（不在本切片修）：
+
+> **`characters/` 镜像文件名 slug 碰撞 + `load_novel` 回读镜像 = 真丢卡**（探针实测：同书建
+> `"A B"` 与 `"A_B"`，先建的那张立刻在界面看不见，真源里其实还在）。`lore/` 不受影响（不回读镜像）。
+> 修法与影响面见评审归档末节，**需另开增量并 RED 先行**。
 
 
 ### N8 决策（用户已定，2026-10-11）

@@ -176,10 +176,10 @@ class TestLibraryCopySemantics:
         _make_novel("novel_b")
         save_card("novel_a", _card("沈约", description="A 版"))
 
-        assert library.export_to_library("novel_a", "沈约") is True
+        assert library.export_to_library("novel_a", "沈约") == "ok"
         assert library.list_library() == ["沈约"]
 
-        assert library.import_from_library("novel_b", "沈约") is True
+        assert library.import_from_library("novel_b", "沈约") == "ok"
         assert load_card("novel_b", "沈约").description == "A 版"
 
         # 纯复制：改素材/改原书，都不该影响已经导入的那份
@@ -193,7 +193,7 @@ class TestLibraryCopySemantics:
         save_card("novel_a", _card("沈约"))
         library.export_to_library("novel_a", "沈约")
 
-        assert library.import_from_library("novel_b", "沈约", new_name="老沈") is True
+        assert library.import_from_library("novel_b", "沈约", new_name="老沈") == "ok"
         assert list_cards("novel_b") == ["老沈"]
         assert load_card("novel_b", "老沈").name == "老沈"
 
@@ -203,17 +203,17 @@ class TestLibraryCopySemantics:
         library.export_to_library("novel_a", "沈约")
         save_card("novel_a", _card("沈约", description="本书自己的"), overwrite=True)
 
-        assert library.import_from_library("novel_a", "沈约") is False
+        assert library.import_from_library("novel_a", "沈约") == "target_exists"
         assert load_card("novel_a", "沈约").description == "本书自己的"
 
-    def test_missing_library_item_returns_false(self):
+    def test_missing_library_item_reports_source_missing(self):
         _make_novel("novel_a")
 
-        assert library.import_from_library("novel_a", "不存在的素材") is False
+        assert library.import_from_library("novel_a", "不存在的素材") == "source_missing"
         assert library.load_from_library("不存在的素材") is None
 
-    def test_export_missing_card_returns_false(self):
+    def test_export_missing_card_reports_source_missing(self):
         _make_novel("novel_a")
 
-        assert library.export_to_library("novel_a", "不存在") is False
+        assert library.export_to_library("novel_a", "不存在") == "source_missing"
         assert library.list_library() == []

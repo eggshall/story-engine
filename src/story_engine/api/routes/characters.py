@@ -131,22 +131,46 @@ def api_list_library() -> ApiResponse:
 
 
 @router.post("/novel/{novel_id}/characters/{name}/to-library")
-def api_export_to_library(novel_id: str, name: str, new_name: str = "") -> ApiResponse:
-    """把本书的一张卡**复制**成素材库条目（源卡不受影响）。"""
+def api_export_to_library(
+    novel_id: str, name: str, new_name: str = "", overwrite: bool = False
+) -> ApiResponse:
+    """把本书的一张卡**复制**成素材库条目（源卡不受影响）。
+
+    `new_name` 走 **query**（前端 `exportCharacterToLibrary` 就是这么发的，见 `utils/api.ts`）。
+
+    失败原因要**分开说**：「卡不存在」和「文件名已被另一张卡占用」是两回事，混成一个
+    `success=false` 会让提示撒谎（N8 评审 P1-2 的同类问题）。同名同身份重复另存是幂等的，
+    只有**不同身份撞同一文件名**（`_slug` 有损，如 `"A B"` 与 `"A_B"`）才需要 `overwrite`。
+    """
     try:
-        if not library.export_to_library(novel_id, name, new_name=new_name):
-            return ApiResponse(success=False, message=f"角色卡「{name}」不存在")
+        result = library.export_to_library(novel_id, name, new_name=new_name, overwrite=overwrite)
     except NovelNotFound as e:
         return ApiResponse(success=False, message=str(e))
+
+    if result == "source_missing":
+        return ApiResponse(success=False, message=f"角色卡「{name}」不存在")
+    if result == "name_taken":
+        taken = new_name or name
+        return ApiResponse(
+            success=False,
+            message=f"素材库里已有另一张卡占用了「{taken}」对应的文件名"
+                    f"（不同名字可能映射到同一文件）；换个名字或加 overwrite=true",
+        )
+    if result == "write_failed":
+        return ApiResponse(success=False, message="素材写盘失败，详见服务端日志")
     return ApiResponse(success=True, data={"saved_to_library": new_name or name})
 
 
 @router.post("/novel/{novel_id}/characters/import")
 def api_import_character(novel_id: str, req: ImportCardRequest) -> ApiResponse:
-    """从素材库或另一本书**复制**一张卡进这本书。"""
+    """从素材库或另一本书**复制**一张卡进这本书。
+
+    「素材库里没有这张卡」与「本书已有同名卡」必须给**不同**提示：原来两者都返回 False，
+    界面于是对着一张根本不存在的素材反复让人勾「覆盖」（N8 评审 P1-2）。
+    """
     try:
         if req.source == "library":
-            ok = library.import_from_library(
+            result = library.import_from_library(
                 novel_id, req.name, new_name=req.new_name, overwrite=req.overwrite
             )
             origin_msg = "素材库"
@@ -155,12 +179,18 @@ def api_import_character(novel_id: str, req: ImportCardRequest) -> ApiResponse:
             if src is None:
                 return ApiResponse(success=False, message=f"源小说「{req.source}」里没有「{req.name}」")
             card = src.model_copy(update={"name": req.new_name}) if req.new_name else src
-            ok = save_card(novel_id, card, overwrite=req.overwrite)
+            result = "ok" if save_card(novel_id, card, overwrite=req.overwrite) else "target_exists"
             origin_msg = f"《{req.source}》"
     except NovelNotFound as e:
         return ApiResponse(success=False, message=str(e))
+    except ValueError:
+        # `source` 不是合法小说 id（如 "../../etc/passwd"）时，`_safe_novel_id` 抛 ValueError。
+        # 用户可控输入不该变成 HTTP 500（N8 评审 P1-3）。
+        return ApiResponse(success=False, message=f"源标识非法：{req.source}")
 
-    if not ok:
+    if result == "source_missing":
+        return ApiResponse(success=False, message=f"素材库里没有「{req.name}」")
+    if result == "target_exists":
         return ApiResponse(
             success=False,
             message=f"导入失败：本书已有同名角色卡「{req.new_name or req.name}」（可勾选覆盖）",
