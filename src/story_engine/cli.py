@@ -171,7 +171,9 @@ def example(novel_id: str):
     ok = save_card(novel_id, card, overwrite=True)
     if ok:
         click.echo(f"已创建示例角色卡：{card.name}")
-        click.echo(f"  路径：{_novel_dir(novel_id) / 'characters' / f'{card.name}.json'}")
+        click.echo(f"  镜像目录：{_novel_dir(novel_id) / 'characters'}")
+        click.echo("  （文件名是名字的 slug；与别的卡撞同一 slug 时会追加短 hash 后缀，"
+                   "别按名字猜文件名）")
         click.echo("")
         click.echo(card.to_prompt_block())
     else:
@@ -255,8 +257,9 @@ def cmd_example_lore(novel_id: str):
     ok = save_lorebook(novel_id, book, overwrite=True)
     if ok:
         click.echo(f"已创建示例设定集：{book.name}（{len(book.entries)} 个条目）")
-        click.echo(f"  只读导出：{_novel_dir(novel_id) / 'lore' / f'{book.name}.json'}")
-        click.echo("  （该目录仅供查看/diff；真源是 novel.json，手改镜像不会生效）")
+        click.echo(f"  只读导出目录：{_novel_dir(novel_id) / 'lore'}")
+        click.echo("  （仅供查看/diff；真源是 novel.json，手改镜像不会生效；"
+                   "文件名是名字的 slug，撞名时追加短 hash）")
     else:
         click.echo("创建失败")
 

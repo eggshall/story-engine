@@ -15,7 +15,7 @@ import re
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from story_engine.core.config import data_dir
 from story_engine.core.models import Novel
@@ -55,6 +55,43 @@ def _safe_json_path(base: Path, name: str) -> Path:
     if p.parent != base.resolve():
         raise ValueError(f"非法文件名: {name!r}")
     return p
+
+
+def _mirror_file_names(names: Iterable[str]) -> Dict[str, str]:
+    """给一组身份名算出**唯一且稳定**的镜像文件名（不含扩展名）。
+
+    为什么不能只靠 `_slug`：它是**有损**的 —— `"A B"`、`"A_B"`、`"a/b"` 都变成 `A_B`。
+    两个身份于是写同一个镜像文件、后写覆盖先写；而 `load_novel` **会回读** `characters/`，
+    于是先建的那张卡在界面上直接消失（真源 novel.json 里其实还在）。这是一条静默数据丢失路径。
+
+    规则：
+
+    - `_slug` 互不冲突时**就用 slug**（保持人类可读，绝大多数书都是这种）；
+    - 同一个 slug 下有多个身份时，这些身份**全部**追加「名字的」短 hash —— 用名字而不是写入
+      顺序算，所以**同一份数据每次保存都得到同样的文件名**（不会来回改名、留残影）；
+    - 生成后做一次**全局唯一性自检**：单成员组用的是裸 slug，而多成员组产出 `slug-<digest>`，
+      两者字符集相同 —— 有人恰好把条目命名成 `"A_B-8aabb8bc"` 就能与另一组的产出逐字节相同
+      （构造性碰撞，实测复现过）。冲突时延长 digest 重算，宁可文件名难看也不能让两个身份
+      共用同一个文件。
+    """
+    groups: Dict[str, List[str]] = {}
+    for name in names:
+        groups.setdefault(_slug(name), []).append(name)
+
+    for hexlen in (8, 16, 40):
+        out: Dict[str, str] = {}
+        for slug, members in groups.items():
+            if len(members) == 1:
+                out[members[0]] = slug
+                continue
+            for name in members:
+                digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:hexlen]
+                out[name] = f"{slug}-{digest}"
+        if len(set(out.values())) == len(out):
+            return out
+
+    # 全量 sha1 仍撞的只能是 sha1 真碰撞（或同一名字出现两次），静默复用文件名不可接受
+    raise ValueError("无法为镜像目录算出唯一的文件名（请检查是否有重复的条目名）")
 
 
 def _safe_novel_id(novel_id: str) -> str:
@@ -213,15 +250,21 @@ def load_novel(novel_id: str) -> Optional[Novel]:
                     continue
             if chs:
                 data["chapters"] = chs
-        # 从角色目录加载
+        # 从角色目录加载（**合并**，不是替换 —— 见下）
         # ⚠️ 非对称是**有意**的（N8 评审 P2-8）：`characters/` 镜像会被回读，`lore/` 不会。
         #    世界观的唯一真源是 `novel.json` 的 `lorebooks`；回读 `lore/` 镜像会让"已删除的
         #    设定集"在下次保存前从残影里复活（`_write_files` 只在保存时清空该目录）。
         #    `lore/` 因此是**只读导出**（给人看/给 diff 用），手改它不会生效 —— CLI 的
         #    `story lore example` 输出里已把这点写明。
+        #
+        # **为什么是「合并」而不是「替换」**：镜像可能**不完整** —— 升级前被 slug 撞名覆盖过，
+        # 或用户手删过其中一个文件。原来整体替换真源，于是「真源里仍然完好的条目」在内存里
+        # 消失，紧接着任何一次保存（改章节/改卡都会触发）就把它从 `novel.json` **永久删掉**：
+        # 明明是可恢复的数据被销毁。合并的语义是：以真源字典为底，镜像只覆盖**同名**项
+        #（手改镜像的手改能力保留），绝不删除只存在于真源的条目。
         ch_dir2 = nd / "characters"
         if ch_dir2.exists():
-            chars = {}
+            chars = dict(data.get("characters", {}) or {})
             for f in ch_dir2.glob("*.json"):
                 try:
                     c = json.loads(f.read_text(encoding="utf-8"))
@@ -303,13 +346,16 @@ def _write_files(base: Path, data: dict) -> None:
             json.dumps(ch, ensure_ascii=False, indent=2),
         )
 
-    # 角色
+    # 角色（镜像文件名要能区分身份：`_slug` 有损，两个名字可能撞同一个文件 → 见
+    # `_mirror_file_names`。`load_novel` 会回读本目录，撞车就等于静默丢卡）
     ch_dir2 = base / "characters"
     for f in ch_dir2.glob("*.json"):
         f.unlink()
-    for cname, cdata in data.get("characters", {}).items():
+    chars = data.get("characters", {})
+    char_files = _mirror_file_names(chars.keys())
+    for cname, cdata in chars.items():
         _atomic_write(
-            _safe_json_path(ch_dir2, cname),
+            _safe_json_path(ch_dir2, char_files[cname]),
             json.dumps(cdata, ensure_ascii=False, indent=2),
         )
 
@@ -320,9 +366,11 @@ def _write_files(base: Path, data: dict) -> None:
     lb_dir = base / "lore"
     for f in lb_dir.glob("*.json"):
         f.unlink()
-    for lbname, lbdata in data.get("lorebooks", {}).items():
+    books = data.get("lorebooks", {})
+    book_files = _mirror_file_names(books.keys())
+    for lbname, lbdata in books.items():
         _atomic_write(
-            _safe_json_path(lb_dir, lbname),
+            _safe_json_path(lb_dir, book_files[lbname]),
             json.dumps(lbdata, ensure_ascii=False, indent=2),
         )
 
@@ -332,9 +380,11 @@ def _write_files(base: Path, data: dict) -> None:
     th_dir = base / "threads"
     for f in th_dir.glob("*.json"):
         f.unlink()
-    for tid, tdata in data.get("threads", {}).items():
+    thread_map = data.get("threads", {})
+    thread_files = _mirror_file_names(thread_map.keys())
+    for tid, tdata in thread_map.items():
         _atomic_write(
-            _safe_json_path(th_dir, tid),
+            _safe_json_path(th_dir, thread_files[tid]),
             json.dumps(tdata, ensure_ascii=False, indent=2),
         )
 

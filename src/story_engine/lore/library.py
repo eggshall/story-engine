@@ -23,6 +23,13 @@
 
 返回码用 `Literal` 而不是 `bool`：路由要给出**诚实**的失败原因（「源不存在」与「目标已存在」
 是两回事，混成一个 False 会让界面提示撒谎 —— N8 评审 P1-2）。
+
+## 与小说内镜像目录的策略差异（有意）
+
+小说目录下的镜像（`characters/`/`lore/`/`threads/`）对撞名名字**自动加短 hash** 区分
+（`novel_storage._mirror_file_names`），因为它们由 `_write_files` 整目录重建、不需要与人协商。
+**素材库故意保持裸 slug + 显式失败**：库文件是**真源**、是作者可复用的资产，静默改名比报错更糟
+（「我另存的名字怎么变了」），所以撞名一律返回 `name_taken` 让调用方自己决定。
 """
 
 from __future__ import annotations

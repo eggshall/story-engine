@@ -31,6 +31,16 @@
   - 评审 `docs/design/reviews/N8-REVIEW.md`（**无 P0**；2 个 P1 + 8 个 P2 全处置，
     含「命中超上限静默丢弃」「`lore` 反向依赖 `characters`」「两套上一章口径」）
   - ⬜ 未做：`WorldView` 设定集区块（现状是页面内写死的假数据）、世界观浏览器 E2E
+- 🐛 **修复（N8 缺陷修复切片）** — **镜像文件名身份碰撞 = 静默丢卡**：
+  - `_slug` 有损（`"A B"`/`"A_B"`/`"a/b"` 都 → `A_B`），两个身份写同一个镜像文件、后写覆盖先写；
+    而 `load_novel` 会**回读** `characters/`，于是先建的那张卡在界面上直接消失（真源里还在）
+  - 新增 `novel_storage._mirror_file_names()`：不撞名仍用 slug（保持人类可读），同 slug 的多个身份
+    追加「名字的」短 hash（与写入顺序无关、重复保存同名）；并做**全局唯一性自检**，
+    防「有人把名字起成 `slug-短hash`」的构造性碰撞（评审实测复现）
+  - **`load_novel` 回读 `characters/` 从整体替换改为合并**：残缺镜像不再能吞掉真源里的条目 ——
+    否则对升级前已被损坏的书，一次 load→save 就把**仍可恢复**的那张卡永久抹掉
+  - `cli.py` 的 `character example` / `lore example` 不再打印按名字猜的路径（撞名时会不符）
+  - 评审 `docs/design/reviews/N8-REVIEW.md` 第三轮（**无 P0**；1 个 P1 + 3 个 P2 全处置）
 - ✅ **N9** — **伏笔账本 + 注入 + 校验（最小版）**：`PlotThread` + `Novel.threads`
   （真源 `novel.json`，镜像 `threads/`）；装配器 `threads` 槽位（`priority=SUMMARIES`）；
   校验新增 `dangling_threads` / `unknown_payoff`；`/api/novel/{id}/threads` 5 个端点
@@ -41,7 +51,7 @@
 
 ### 质量基线
 
-- 后端：**995 passed / 3 skipped**，覆盖率 **94.43%**（门禁 75%）；ruff / mypy（68 文件）全绿
+- 后端：**1007 passed / 3 skipped**，覆盖率 **94.43%**（门禁 75%）；ruff / mypy（68 文件）全绿
 - 前端：vitest **104 passed**；vue-tsc 0；vite build ✓
 - 评审：`docs/design/reviews/N0–N6、N8、N9-REVIEW.md`（各节点均"需补充/修复后通过 → 已逐条处置"）
 - E2E：后端真实 HTTP 到 `tests/e2e/`（N1/N2/N3/N4b/N5/N6/N8/N9）；前端真实浏览器到 `e2e/`
