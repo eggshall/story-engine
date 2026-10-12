@@ -311,24 +311,26 @@ story-engine/
 - [ ] 装配器: 硬预算上限; 常驻骨架 + 按需检索; **同时作为作者手边的参考面板**
 - 验收: 20M 字级装配输入受限在预算内; 第 N 章正确接续第 N−100 章主线与伏笔
 
-### 阶段 Ⅱ.5 — 伏笔账本与注入（最小版, N9）⬅ 先做这个
+### 阶段 Ⅱ.5 — 伏笔账本与注入（最小版, N9）✅ **已完成（后端）**
+> 完成于 2026-10-12，提交 `387734b`；评审 `docs/design/reviews/N9-REVIEW.md`（无 P0，11 项全处置）
 > 动机: 阅文时代的产品需求原话——「一本书写个三五年，伏笔就记不起来了」；同类产品（起点作家助手、
 >   马良）都把**伏笔当一等公民模块**而非设定附属（见 `~/wiki/comparisons/product-novel-tools-setting-modules.md`）。
 > 设计要点、扩展点与**非目标**见 `docs/design/P7-MVP-PLAN.md` §9.1.1。
 > 约束: **最小化改动** —— 不新建存储体系、不改装配器签名、不改 SSE 契约、不引入检索/向量。
 
-- [ ] 伏笔账本最小模型: `<小说目录>/novel.json` 增 `threads`（真源）+ `threads/` 只读镜像，沿用既有
+- [x] 伏笔账本最小模型: `<小说目录>/novel.json` 增 `threads`（真源）+ `threads/` 只读镜像，沿用既有
   「model 为真源 / 目录文件为 human-readable 镜像」约定；字段 `id/title/status/planted_chapter/payoff_chapter/strength/note`
-- [ ] 装配器挂 `threads` provider + 一条槽位（走既有 `extra_providers` 口子，**不改 `build_novel_builder` 签名**）
-- [ ] 注入规则（最小版，非检索）: 只注入 `status ∈ {planted, developed}` 且 `planted_chapter ≤ 本章` 的伏笔；
+- [x] 装配器挂 `threads` provider + 一条槽位（走既有 `extra_providers` 口子，**不改 `build_novel_builder` 签名**）
+- [x] 注入规则（最小版，非检索）: 只注入 `status ∈ {planted, developed}` 且 `planted_chapter ≤ 本章` 的伏笔；
   超预算按「本章 − **埋设**章」降序截断并标 `truncated`
-- [ ] A 类校验 2 条（确定性、不调模型）: `dangling_threads`（悬空伏笔）/ `unknown_payoff`（回收章不存在）；
-  **无账本时返回 skipped 而不是猜**（遵守 N5 铁律）
-- [ ] 最小 API: `GET/POST/PUT/DELETE /api/novel/{id}/threads`（复用 `APIModel` camelCase 兼容）
-- [ ] 前端: 写作页右侧面板只读展示「未回收伏笔」清单（本期不做编辑 UI）
+- [x] A 类校验 2 条（确定性、不调模型）: `dangling_threads`（悬空伏笔）/ `unknown_payoff`（回收章不存在）；
+  **有账本才参与**（没账本不新增规则条目，旧书报告形状不变 —— 评审 P1-2 对齐）
+- [x] 最小 API: `GET/POST/PUT/DELETE /api/novel/{id}/threads` + `.../advance`（`APIModel` 兼容 camelCase）
+- [ ] **前端只读面板**（写作页展示「未回收伏笔」清单）—— 后端契约已就绪，作为独立增量
 - **非目标（明确推迟到阶段 Ⅲ 完整版）**: 向量/按需检索、从正文自动抽伏笔、变更隔离、图谱关系、编辑 UI
-- 验收: 账本增删改查通过；生成时未回收伏笔进入注入清单（`manifest` 可见）；悬空伏笔能被校验报出；
-  无账本时校验返回 skipped 而非告警
+- 验收: ✅ 账本增删改查通过；✅ 未回收伏笔进入注入清单（`manifest` / `GET /api/check/manifest` 均可见）；
+  ✅ 悬空伏笔与失效回收章能被校验报出；✅ 无账本时校验形状不变
+- 门禁: pytest **921 passed / 3 skipped**（覆盖率 94.36%）· ruff · mypy · vitest 104 · vue-tsc 0
 
 ### 阶段 Ⅲ — 设定库（novel-kb）
 - [ ] 每本小说一个 markdown 知识库（SCHEMA/index/log + entities/timeline/plot/style）
